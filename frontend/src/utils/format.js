@@ -1,15 +1,40 @@
 export const formatCurrency = (value) => {
-  if (value >= 1000000) {
-    return `$${(value / 1000000).toFixed(1)}M`;
+  // Handle null/undefined
+  if (value === null || value === undefined) {
+    return "$0.00";
   }
 
-  if (value >= 1000) {
-    return `$${(value / 1000).toFixed(1)}K`;
+  // Handle arrays (used by confidence bands)
+  if (Array.isArray(value)) {
+    return `${formatCurrency(value[0])} - ${formatCurrency(value[1])}`;
   }
 
-  return `$${value.toFixed(2)}`;
+  // Convert strings to numbers if possible
+  const num = Number(value);
+
+  // Handle invalid values
+  if (Number.isNaN(num)) {
+    return "$0.00";
+  }
+
+  if (num >= 1000000) {
+    return `$${(num / 1000000).toFixed(1)}M`;
+  }
+
+  if (num >= 1000) {
+    return `$${(num / 1000).toFixed(1)}K`;
+  }
+
+  return `$${num.toFixed(2)}`;
 };
 
 export const formatNumber = (value) => {
-  return new Intl.NumberFormat("en-US").format(value);
+  if (value === null || value === undefined) return "0";
+
+  const num = Number(value);
+
+  if (Number.isNaN(num)) return "0";
+
+  return new Intl.NumberFormat("en-US").format(num);
 };
+

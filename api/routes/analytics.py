@@ -1,11 +1,19 @@
-from fastapi import APIRouter, Depends
+from typing import Optional
 
-from api.dependencies import (
-    get_cleaned_dataframe
-)
+from fastapi import APIRouter, Depends, Query
 
-from src.agents.tools import (
-    TOOL_REGISTRY
+from api.dependencies import get_cleaned_dataframe
+
+from api.services.analytics_engine import (
+    filter_dataframe,
+    calculate_kpis,
+    calculate_monthly_trend,
+    calculate_category_summary,
+    calculate_region_summary,
+    calculate_top_products,
+    generate_business_insights,
+    get_filter_metadata,
+    build_metadata,
 )
 
 
@@ -15,141 +23,157 @@ router = APIRouter(
 )
 
 
+def _filter_or_empty(df, year, month, region, category):
+    """
+    Shared filtering step for every endpoint in this router (STEP 1 + 12).
+
+    Returns (filtered_df, empty_response). If a filter was actually
+    supplied but matched zero rows, empty_response is a ready-to-return
+    dict (success=True, empty=True, "No records found.") and the caller
+    should return it immediately. If empty_response is None, the caller
+    should proceed using filtered_df as normal — this covers both "no
+    filters were passed" and "filters were passed and matched rows".
+    """
+    filtered_df = filter_dataframe(df, year=year, month=month, region=region, category=category)
+
+    any_filter_applied = any(
+        v is not None and str(v).strip().lower() not in ("", "all")
+        for v in (year, month, region, category)
+    )
+
+    if any_filter_applied and filtered_df.empty:
+        return filtered_df, {
+            "success": True,
+            "empty": True,
+            "message": "No records found.",
+            "data": None,
+            "metadata": build_metadata(df, filtered_df, year, month, region, category),
+        }
+
+    return filtered_df, None
+
+
 @router.get("/summary")
 def get_business_summary(
-    df=Depends(get_cleaned_dataframe)
+    year: Optional[str] = Query(None),
+    month: Optional[str] = Query(None),
+    region: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    df=Depends(get_cleaned_dataframe),
 ):
-    """
-    Return overall business KPIs.
-    """
+    """Return overall business KPIs, optionally filtered."""
+    filtered_df, empty_response = _filter_or_empty(df, year, month, region, category)
+    if empty_response:
+        return empty_response
 
-    result = TOOL_REGISTRY[
-        "kpi_summary"
-    ](df)
-
-    return {
-        "success": True,
-        "data": result
-    }
+    return {"success": True, "data": calculate_kpis(filtered_df)}
 
 
 @router.get("/monthly-trend")
 def get_monthly_trend(
-    df=Depends(get_cleaned_dataframe)
+    year: Optional[str] = Query(None),
+    month: Optional[str] = Query(None),
+    region: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    df=Depends(get_cleaned_dataframe),
 ):
-    """
-    Return monthly revenue, profit,
-    orders, and units sold.
-    """
+    """Return monthly Revenue AND Profit trend, optionally filtered."""
+    filtered_df, empty_response = _filter_or_empty(df, year, month, region, category)
+    if empty_response:
+        return empty_response
 
-    result = TOOL_REGISTRY[
-        "monthly_trend"
-    ](df)
-
-    return {
-        "success": True,
-        "data": result
-    }
+    return {"success": True, "data": calculate_monthly_trend(filtered_df)}
 
 
 @router.get("/categories")
 def get_category_performance(
-    df=Depends(get_cleaned_dataframe)
+    year: Optional[str] = Query(None),
+    month: Optional[str] = Query(None),
+    region: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    df=Depends(get_cleaned_dataframe),
 ):
-    """
-    Return category performance.
-    """
+    """Return category performance: Revenue, Profit, Units, Contribution %, Growth %."""
+    filtered_df, empty_response = _filter_or_empty(df, year, month, region, category)
+    if empty_response:
+        return empty_response
 
-    result = TOOL_REGISTRY[
-        "category_performance"
-    ](df)
-
-    return {
-        "success": True,
-        "data": result
-    }
+    return {"success": True, "data": calculate_category_summary(filtered_df)}
 
 
 @router.get("/regions")
 def get_regional_performance(
-    df=Depends(get_cleaned_dataframe)
+    year: Optional[str] = Query(None),
+    month: Optional[str] = Query(None),
+    region: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    df=Depends(get_cleaned_dataframe),
 ):
-    """
-    Return regional performance.
-    """
+    """Return regional performance: Revenue, Profit, Orders, Contribution %, Growth %."""
+    filtered_df, empty_response = _filter_or_empty(df, year, month, region, category)
+    if empty_response:
+        return empty_response
 
-    result = TOOL_REGISTRY[
-        "regional_performance"
-    ](df)
-
-    return {
-        "success": True,
-        "data": result
-    }
+    return {"success": True, "data": calculate_region_summary(filtered_df)}
 
 
 @router.get("/top-products")
 def get_top_products(
-    df=Depends(get_cleaned_dataframe)
+    year: Optional[str] = Query(None),
+    month: Optional[str] = Query(None),
+    region: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    limit: int = Query(10, ge=1, le=100),
+    df=Depends(get_cleaned_dataframe),
 ):
-    """
-    Return top products by revenue.
-    """
+    """Return top products by revenue: Revenue, Profit, Units, Growth %, Ranking."""
+    filtered_df, empty_response = _filter_or_empty(df, year, month, region, category)
+    if empty_response:
+        return empty_response
 
-    result = TOOL_REGISTRY[
-        "top_products"
-    ](df)
+    return {"success": True, "data": calculate_top_products(filtered_df, limit=limit)}
 
-    return {
-        "success": True,
-        "data": result
-    }
+
 @router.get("/dashboard-overview")
 def get_dashboard_overview(
-    df=Depends(get_cleaned_dataframe)
+    year: Optional[str] = Query(None, description="e.g. 2024"),
+    month: Optional[str] = Query(None, description="e.g. November"),
+    region: Optional[str] = Query(None, description="e.g. East"),
+    category: Optional[str] = Query(None, description="e.g. Electronics"),
+    df=Depends(get_cleaned_dataframe),
 ):
     """
-    Return the main data needed for the
-    initial dashboard view.
+    Single source of truth for the Analytics workspace.
+
+    Filters are applied ONCE, here, against the raw cleaned dataframe.
+    Every downstream calculation — KPIs, monthly trend, category summary,
+    region summary, top products, business insights — is derived from
+    that SAME filtered dataframe. Nothing downstream re-filters an
+    already-aggregated result, which is what made Region/Category filters
+    unable to affect the monthly trend and Revenue/Profit toggle in the
+    old architecture.
     """
+    filtered_df, empty_response = _filter_or_empty(df, year, month, region, category)
+    if empty_response:
+        return empty_response
 
-    kpis = TOOL_REGISTRY[
-        "kpi_summary"
-    ](df)
-
-    monthly_trend = TOOL_REGISTRY[
-        "monthly_trend"
-    ](df)
-
-    categories = TOOL_REGISTRY[
-        "category_performance"
-    ](df)
-
-    regions = TOOL_REGISTRY[
-        "regional_performance"
-    ](df)
-
-    top_products = TOOL_REGISTRY[
-        "top_products"
-    ](df)
-
+    kpis = calculate_kpis(filtered_df)
+    monthly_trend = calculate_monthly_trend(filtered_df)
+    categories_summary = calculate_category_summary(filtered_df)
+    regions_summary = calculate_region_summary(filtered_df)
+    top_products = calculate_top_products(filtered_df, limit=10)
+    insights = generate_business_insights(monthly_trend, categories_summary, regions_summary, kpis)
 
     return {
         "success": True,
-
         "data": {
             "kpis": kpis,
-
-            "monthly_trend":
-                monthly_trend,
-
-            "categories":
-                categories,
-
-            "regions":
-                regions,
-
-            "top_products":
-                top_products[:10]
-        }
+            "monthly_trend": monthly_trend,
+            "categories": categories_summary,
+            "regions": regions_summary,
+            "top_products": top_products,
+            "insights": insights,
+        },
+        "filters_available": get_filter_metadata(df),
+        "metadata": build_metadata(df, filtered_df, year, month, region, category),
     }
