@@ -2732,3 +2732,325 @@ button:focus-visible {
     background: #e2e8f0;
     animation: fxPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
+  /* Add these styles to the bottom of App.css */
+@keyframes fxFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fx-fade-in {
+  animation: fxFadeIn 0.4s ease-out;
+}
+
+.fx-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: #dc2626;
+  color: white;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.fx-retry-btn:hover {
+  background: #b91c1c;
+}
+
+.fx-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.fx-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fx-control-group label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.fx-pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 10px;
+  width: max-content;
+}
+
+.fx-pill {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.fx-pill:hover {
+  background: #e2e8f0;
+}
+
+.fx-pill-active {
+  background: #7c3aed;
+  color: white;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.2);
+}
+
+.fx-pill-active:hover {
+  background: #6d28d9;
+}
+
+.fx-date-input, .fx-select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.fx-control-note, .fx-control-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.fx-control-badge {
+  color: #d97706;
+  font-weight: 600;
+  background: #fef3c7;
+  padding: 4px 8px;
+  border-radius: 4px;
+  width: max-content;
+}
+
+.fx-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.fx-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.fx-summary-wide {
+  grid-column: 1 / -1;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.fx-summary-item span {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.fx-summary-item strong {
+  font-size: 18px;
+  color: #0f172a;
+}
+
+.fx-summary-text {
+  font-size: 15px !important;
+  color: #166534 !important;
+  line-height: 1.5;
+}
+
+.fx-trend-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.fx-trend-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+
+.fx-trend-metric {
+  font-size: 13.5px;
+  color: #475569;
+}
+
+.fx-trend-metric strong {
+  color: #0f172a;
+}
+
+.fx-chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.fx-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+}
+
+.fx-expand-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: #475569;
+}
+
+.fx-expand-toggle:hover {
+  color: #0f172a;
+}
+
+.fx-model-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.fx-model-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fx-model-info-item span {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.fx-model-info-item strong {
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.fx-model-info-wide {
+  grid-column: 1 / -1;
+  background: #f8fafc;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.fx-table-toolbar {
+  margin-bottom: 16px;
+}
+
+.fx-search-wrap {
+  position: relative;
+  max-width: 320px;
+}
+
+.fx-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+}
+
+.fx-search-input {
+  width: 100%;
+  padding: 10px 14px 10px 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.fx-search-input:focus {
+  outline: none;
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+}
+
+.fx-table-scroll {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  max-height: 400px;
+}
+
+.forecast-table th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 10;
+  cursor: pointer;
+  user-select: none;
+}
+
+.forecast-table th:hover {
+  background: #f1f5f9;
+}
+
+/* Skeleton Loaders */
+@keyframes fxPulse {
+  50% { opacity: 0.5; }
+}
+.fx-skeleton-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  margin-bottom: 22px;
+}
+.fx-skeleton-card {
+  height: 100px;
+  background: #e2e8f0;
+  border-radius: 14px;
+  animation: fxPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.fx-skeleton-chart {
+  height: 400px;
+  background: #e2e8f0;
+  animation: fxPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

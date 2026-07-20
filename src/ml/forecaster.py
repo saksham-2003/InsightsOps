@@ -1,3 +1,4 @@
+# src/ml/forecaster.py
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
@@ -90,7 +91,6 @@ def train_revenue_forecaster(df):
     X = feature_data[features]
     y = feature_data["Revenue"]
 
-
     # Time-based split: first 80% train, final 20% test
     split_index = int(len(feature_data) * 0.8)
 
@@ -99,7 +99,6 @@ def train_revenue_forecaster(df):
 
     y_train = y.iloc[:split_index]
     y_test = y.iloc[split_index:]
-
 
     model = RandomForestRegressor(
         n_estimators=200,
@@ -111,13 +110,11 @@ def train_revenue_forecaster(df):
 
     predictions = model.predict(X_test)
 
-
     results = feature_data.iloc[
         split_index:
     ][["Order_Date", "Revenue"]].copy()
 
     results["Predicted_Revenue"] = predictions
-
 
     metrics = {
         "MAE": mean_absolute_error(
@@ -140,8 +137,72 @@ def train_revenue_forecaster(df):
         "test_days": len(X_test)
     }
 
-
     return model, results, metrics
+
+
+def forecast_future_revenue(model, df, horizon=30, custom_date=None):
+    """
+    Generate future predictions recursively using the trained model.
+    """
+    daily_data = prepare_daily_revenue(df)
+    
+    if daily_data.empty:
+        return []
+        
+    last_date = daily_data["Order_Date"].max()
+    
+    horizon_int = 30
+    try:
+        if horizon and str(horizon).isdigit():
+            horizon_int = int(horizon)
+    except Exception:
+        pass
+        
+    if custom_date:
+        try:
+            target_date = pd.to_datetime(custom_date)
+            days_diff = (target_date - last_date).days
+            if days_diff > 0:
+                horizon_int = days_diff
+        except Exception:
+            pass
+
+    working_df = daily_data.copy()
+    future_predictions = []
+    
+    for i in range(horizon_int):
+        next_date = last_date + pd.Timedelta(days=i+1)
+        
+        # Append an empty row for the future date to process lags
+        new_row = pd.DataFrame([{"Order_Date": next_date, "Revenue": np.nan}])
+        working_df = pd.concat([working_df, new_row], ignore_index=True)
+        
+        # Re-calculate features on the extended dataset
+        feat_df = create_forecasting_features(working_df)
+        latest_features = feat_df.iloc[-1:]
+        
+        X_cols = [
+            "DayOfWeek", "Month", "DayOfMonth", "Quarter",
+            "Lag_1", "Lag_7", "Lag_14", "Lag_30",
+            "Rolling_Mean_7", "Rolling_Mean_30"
+        ]
+        
+        X_pred = latest_features[X_cols]
+        
+        # Predict the next step
+        pred_val = model.predict(X_pred)[0]
+        
+        # Inject prediction back into working dataframe for next recursive step
+        working_df.loc[working_df.index[-1], "Revenue"] = pred_val
+        
+        future_predictions.append({
+            "Order_Date": next_date.strftime("%Y-%m-%d"),
+            "Revenue": None, # Future has no actual revenue yet
+            "Predicted_Revenue": float(pred_val)
+        })
+        
+    return future_predictions
+
 
 def evaluate_forecast_baselines(results):
     """
@@ -168,7 +229,6 @@ def evaluate_forecast_baselines(results):
     # Remove rows where baseline values are unavailable
     evaluation_df = evaluation_df.dropna()
 
-
     actual = evaluation_df["Revenue"]
 
     ml_prediction = evaluation_df["Predicted_Revenue"]
@@ -176,7 +236,6 @@ def evaluate_forecast_baselines(results):
     naive_prediction = evaluation_df["Naive_Prediction"]
 
     rolling_prediction = evaluation_df["Rolling_7_Baseline"]
-
 
     comparison = {
 
@@ -198,6 +257,5 @@ def evaluate_forecast_baselines(results):
                 rolling_prediction
             )
     }
-
 
     return comparison

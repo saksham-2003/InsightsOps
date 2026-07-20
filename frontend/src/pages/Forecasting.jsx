@@ -1,4 +1,4 @@
-// 1. Forecasting.jsx
+// src/pages/Forecasting.jsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   ResponsiveContainer,
@@ -44,11 +44,10 @@ import {
   FileText,
   RefreshCw,
   Info,
-  Lock,
 } from "lucide-react";
 
 import { formatCurrency, formatNumber } from "../utils/format";
-import { getForecastEvaluation } from "../services/api";
+import { getForecastEvaluation, getDashboardOverview } from "../services/api";
 
 const MODEL_HEALTH_TIERS = {
   "Very High": {
@@ -107,6 +106,7 @@ const formatDate = (dateStr) => {
 };
 
 const formatSignedCurrency = (value) => {
+  if (value == null) return "—";
   const sign = value < 0 ? "-" : "";
   return `${sign}${formatCurrency(Math.abs(value))}`;
 };
@@ -114,6 +114,7 @@ const formatSignedCurrency = (value) => {
 const average = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0);
 
 const getErrorSeverityClass = (absError, avgAbsError) => {
+  if (absError == null) return "";
   if (avgAbsError === 0) return "fx-error-good";
   if (absError <= avgAbsError) return "fx-error-good";
   if (absError <= avgAbsError * 1.5) return "fx-error-warning";
@@ -121,6 +122,7 @@ const getErrorSeverityClass = (absError, avgAbsError) => {
 };
 
 const getErrorSeverityColor = (absError, avgAbsError) => {
+  if (absError == null) return "#98a2b3";
   if (avgAbsError === 0) return "#12b76a";
   if (absError <= avgAbsError) return "#12b76a";
   if (absError <= avgAbsError * 1.5) return "#f79009";
@@ -204,10 +206,13 @@ function Forecasting() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [availableRegions, setAvailableRegions] = useState([]);
+  const [availableCategories, setAvailableCategories] = useState([]);
+
   const [horizon, setHorizon] = useState("30");
   const [customDate, setCustomDate] = useState("");
-  const [regionFilter] = useState("All");
-  const [categoryFilter] = useState("All");
+  const [regionFilter, setRegionFilter] = useState("All");
+  const [categoryFilter, setCategoryFilter] = useState("All");
 
   const [showHistorical, setShowHistorical] = useState(true);
   const [showForecastLine, setShowForecastLine] = useState(true);
@@ -217,21 +222,42 @@ function Forecasting() {
   const [modelInfoOpen, setModelInfoOpen] = useState(false);
   const [tableSearch, setTableSearch] = useState("");
   const [sortKey, setSortKey] = useState("Order_Date");
-  const [sortDir, setSortDir] = useState("asc");
+  const [sortDir, setSortDir] = useState("desc"); // Defaults to showing latest future first
+
+  // Initialize filter dropdowns
+  useEffect(() => {
+    getDashboardOverview().then(res => {
+      const data = res.data || res;
+      if (data.regions) setAvailableRegions(data.regions.map(r => r.Region));
+      if (data.categories) setAvailableCategories(data.categories.map(c => c.Category));
+    }).catch(console.error);
+  }, []);
 
   const loadForecast = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
-      const response = await getForecastEvaluation();
-      setForecastData(response.data);
+      const response = await getForecastEvaluation({
+        horizon,
+        region: regionFilter,
+        category: categoryFilter,
+        customDate,
+      });
+
+      if (response.success === false) {
+        setError(response.message || "No data available for the selected filters.");
+        setForecastData(null);
+      } else {
+        setForecastData(response.data || response);
+      }
     } catch (err) {
       console.error(err);
       setError("Unable to load forecast data. Please verify backend connection.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [horizon, regionFilter, categoryFilter, customDate]);
 
   useEffect(() => {
     loadForecast();
@@ -262,28 +288,36 @@ function Forecasting() {
   );
 
   const predictionsWithError = useMemo(
-    () => predictions.map((row) => ({ ...row, error: row.Revenue - row.Predicted_Revenue })),
+    () => predictions.map((row) => ({
+      ...row,
+      error: row.Revenue != null ? row.Revenue - row.Predicted_Revenue : null 
+    })),
     [predictions]
   );
 
-  const avgAbsError = useMemo(
-    () => predictionsWithError.length ? predictionsWithError.reduce((sum, row) => sum + Math.abs(row.error), 0) / predictionsWithError.length : 0,
+  const validErrors = useMemo(
+    () => predictionsWithError.filter((r) => r.error != null),
     [predictionsWithError]
+  );
+
+  const avgAbsError = useMemo(
+    () => validErrors.length ? validErrors.reduce((sum, row) => sum + Math.abs(row.error), 0) / validErrors.length : 0,
+    [validErrors]
   );
 
   const overallBias = useMemo(
-    () => predictionsWithError.length ? predictionsWithError.reduce((sum, row) => sum + row.error, 0) / predictionsWithError.length : 0,
-    [predictionsWithError]
+    () => validErrors.length ? validErrors.reduce((sum, row) => sum + row.error, 0) / validErrors.length : 0,
+    [validErrors]
   );
 
   const worstForecastDay = useMemo(
-    () => predictionsWithError.reduce((worst, curr) => (!worst || Math.abs(curr.error) > Math.abs(worst.error) ? curr : worst), null),
-    [predictionsWithError]
+    () => validErrors.reduce((worst, curr) => (!worst || Math.abs(curr.error) > Math.abs(worst.error) ? curr : worst), null),
+    [validErrors]
   );
 
   const highVarianceDays = useMemo(
-    () => predictionsWithError.filter((row) => Math.abs(row.error) > avgAbsError * 1.5),
-    [predictionsWithError, avgAbsError]
+    () => validErrors.filter((row) => Math.abs(row.error) > avgAbsError * 1.5),
+    [validErrors, avgAbsError]
   );
 
   const healthTier = metrics ? getModelHealthTier(metrics.R2) : null;
@@ -310,8 +344,8 @@ function Forecasting() {
   }, [predictions, metrics, scenario]);
 
   const scatterData = useMemo(
-    () => predictionsWithError.map((row) => ({ actual: row.Revenue, predicted: row.Predicted_Revenue, date: row.Order_Date })),
-    [predictionsWithError]
+    () => validErrors.map((row) => ({ actual: row.Revenue, predicted: row.Predicted_Revenue, date: row.Order_Date })),
+    [validErrors]
   );
 
   const scatterValues = scatterData.flatMap((p) => [p.actual, p.predicted]);
@@ -319,8 +353,8 @@ function Forecasting() {
   const scatterMax = scatterValues.length ? Math.max(...scatterValues) : 0;
 
   const errorChartData = useMemo(
-    () => predictionsWithError.map((row) => ({ date: formatDate(row.Order_Date), error: row.error })),
-    [predictionsWithError]
+    () => validErrors.map((row) => ({ date: formatDate(row.Order_Date), error: row.error })),
+    [validErrors]
   );
 
   const distributionData = useMemo(
@@ -332,7 +366,7 @@ function Forecasting() {
     const total = predictedRevenueTotal || 1;
     return predictionsWithError.map((row) => {
       const predictionPct = (row.Predicted_Revenue / total) * 100;
-      const accuracyPct = row.Revenue
+      const accuracyPct = row.Revenue != null
         ? Math.max(0, 100 - (Math.abs(row.error) / Math.abs(row.Revenue)) * 100)
         : null;
       return { ...row, predictionPct, accuracyPct, variance: row.error };
@@ -370,7 +404,7 @@ function Forecasting() {
     if (!metrics || !health || !trend) return [];
     const recs = [];
     recs.push(metrics.R2 >= 0.8 ? "Model accuracy is strong enough to support short-term inventory and staffing decisions." : "Model accuracy is moderate — validate forecasts against other signals before acting on them.");
-    recs.push(highVarianceDays.length > 0 ? `Monitor the ${highVarianceDays.length} forecast day${highVarianceDays.length > 1 ? "s" : ""} with unusually high prediction error.` : "Prediction error is consistent across the evaluation period — no unusually volatile days detected.");
+    recs.push(highVarianceDays.length > 0 ? `Monitor the ${highVarianceDays.length} historical day${highVarianceDays.length > 1 ? "s" : ""} with unusually high prediction error.` : "Prediction error is consistent across the evaluation period — no unusually volatile days detected.");
     recs.push(overallBias > 0 ? "The model tends to under-predict revenue — build in a small planning buffer above the raw forecast." : overallBias < 0 ? "The model tends to over-predict revenue — apply a conservative discount before using forecasts for commitments." : "The model shows no consistent over- or under-prediction bias.");
     return recs;
   }, [metrics, health, trend, highVarianceDays, overallBias]);
@@ -380,7 +414,7 @@ function Forecasting() {
     const steps = [];
     steps.push(healthTier === "Low" || healthTier === "Medium" ? "Consider retraining with a longer training window to improve R²." : "Current training window is producing reliable results — maintain the existing retraining cadence.");
     steps.push(`Re-evaluate the model after the next ${metrics.test_days ?? "upcoming"}-day test window to confirm accuracy holds.`);
-    if (highVarianceDays.length > 0) steps.push("Investigate the flagged high-variance dates for any recurring calendar or demand pattern.");
+    if (highVarianceDays.length > 0) steps.push("Investigate the flagged high-variance historical dates for any recurring calendar or demand pattern.");
     return steps;
   }, [metrics, healthTier, highVarianceDays]);
 
@@ -390,7 +424,7 @@ function Forecasting() {
     expls.push(`Revenue is projected to peak around ${formatDate(trend.peakDate)} at ${formatCurrency(trend.peakValue)}, based on the trained model's demand pattern for that period.`);
     expls.push(metrics.R2 >= 0.8 ? `Confidence is ${health.reliability.toLowerCase()} because the model explains ${(metrics.R2 * 100).toFixed(0)}% of historical revenue variance (R² = ${metrics.R2.toFixed(2)}).` : `Confidence is ${health.reliability.toLowerCase()} because the model only explains ${(metrics.R2 * 100).toFixed(0)}% of historical revenue variance (R² = ${metrics.R2.toFixed(2)}) — treat projections cautiously.`);
     expls.push(trend.direction === "Increasing" ? `The business should prepare for rising demand — expected growth of ${trend.growthPct}% across the forecast window.` : trend.direction === "Declining" ? `The business should prepare for softening demand — an expected decline of ${Math.abs(trend.growthPct)}% across the forecast window.` : "The business should expect relatively flat demand across the forecast window, with no strong directional signal.");
-    expls.push(highVarianceDays.length > 0 ? `${highVarianceDays.length} day${highVarianceDays.length > 1 ? "s" : ""} — including ${formatDate(worstForecastDay?.Order_Date)} — show prediction error well above average and deserve closer attention before planning around them.` : "No specific dates stand out as high-risk — prediction error is evenly distributed across the forecast window.");
+    expls.push(highVarianceDays.length > 0 ? `${highVarianceDays.length} historical day${highVarianceDays.length > 1 ? "s" : ""} — including ${formatDate(worstForecastDay?.Order_Date)} — showed prediction errors well above average and deserve closer attention before planning around similar future dates.` : "No specific dates stand out as high-risk — prediction error was evenly distributed across the evaluation window.");
     return expls;
   }, [metrics, health, trend, highVarianceDays, worstForecastDay]);
 
@@ -417,9 +451,9 @@ function Forecasting() {
     enhancedRows.forEach((row) => {
       lines.push([
         formatDate(row.Order_Date),
-        row.Revenue,
+        row.Revenue != null ? row.Revenue : "",
         row.Predicted_Revenue,
-        row.error.toFixed(2),
+        row.error != null ? row.error.toFixed(2) : "",
         row.predictionPct.toFixed(2),
         row.accuracyPct != null ? row.accuracyPct.toFixed(2) : ""
       ].join(","));
@@ -477,9 +511,9 @@ function Forecasting() {
         head: [["Date", "Actual", "Predicted", "Error", "Accuracy %"]],
         body: enhancedRows.slice(0, 40).map((r) => [
           formatDate(r.Order_Date),
-          formatCurrency(r.Revenue),
+          r.Revenue != null ? formatCurrency(r.Revenue) : "—",
           formatCurrency(r.Predicted_Revenue),
-          formatSignedCurrency(r.error),
+          r.error != null ? formatSignedCurrency(r.error) : "—",
           r.accuracyPct != null ? `${r.accuracyPct.toFixed(1)}%` : "—",
         ]),
       });
@@ -554,21 +588,23 @@ function Forecasting() {
                     <input id="fx-custom-date" type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)} className="fx-date-input" />
                   </div>
                 )}
-                <p className="fx-control-note"><Info size={12} /> Ready for backend implementation.</p>
+                <p className="fx-control-note">
+                    <Info size={12} /> Forecast updates automatically when the horizon changes.
+                </p>
               </div>
-              <div className="fx-control-group fx-disabled-group">
+              <div className="fx-control-group">
                 <label>Region</label>
-                <select className="fx-select" value={regionFilter} disabled>
-                  <option>All Regions</option>
+                <select className="fx-select" value={regionFilter} onChange={e => setRegionFilter(e.target.value)}>
+                  <option value="All">All Regions</option>
+                  {availableRegions.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
-                <div className="fx-control-badge"><Lock size={12}/> Backend support coming soon</div>
               </div>
-              <div className="fx-control-group fx-disabled-group">
+              <div className="fx-control-group">
                 <label>Category</label>
-                <select className="fx-select" value={categoryFilter} disabled>
-                  <option>All Categories</option>
+                <select className="fx-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+                  <option value="All">All Categories</option>
+                  {availableCategories.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <div className="fx-control-badge"><Lock size={12}/> Backend support coming soon</div>
               </div>
             </div>
           </section>
@@ -585,13 +621,13 @@ function Forecasting() {
               <div className="fx-kpi-icon"><Target size={20} /></div>
               <span className="fx-kpi-label">Forecast Period</span>
               <strong className="fx-kpi-value fx-kpi-value-sm">{forecastPeriod}</strong>
-              <span className="fx-kpi-sub">Evaluation window</span>
+              <span className="fx-kpi-sub">Evaluation & Future window</span>
             </div>
             <div className="fx-kpi-card">
               <div className="fx-kpi-icon"><Activity size={20} /></div>
               <span className="fx-kpi-label">Model Accuracy (R²)</span>
               <strong className="fx-kpi-value">{metrics.R2.toFixed(2)}</strong>
-              <span className="fx-kpi-sub">Goodness of fit</span>
+              <span className="fx-kpi-sub">Goodness of historical fit</span>
             </div>
             <div className="fx-kpi-card">
               <div className="fx-kpi-icon"><Gauge size={20} /></div>
@@ -686,13 +722,12 @@ function Forecasting() {
                             name,
                           ];
                         }
-
                         return [formatCurrency(value), name];
                       }}
                     />
                     <Legend />
                     {showConfidenceBand && <Area type="monotone" dataKey="confidenceBand" name="Confidence Band (± MAE)" stroke="none" fill="#a78bfa" fillOpacity={0.18} />}
-                    {showHistorical && <Line type="monotone" dataKey="Revenue" name="Historical Revenue" stroke="#4f46e5" strokeWidth={3} dot={false} />}
+                    {showHistorical && <Line type="monotone" dataKey="Revenue" name="Historical Revenue" stroke="#4f46e5" strokeWidth={3} dot={false} connectNulls={false} />}
                     {showForecastLine && <Line type="monotone" dataKey="scenarioValue" name={`Predicted Revenue (${scenario === "best" ? "Best Case" : scenario === "worst" ? "Worst Case" : "Expected"})`} stroke="#a78bfa" strokeWidth={3} strokeDasharray="6 4" dot={false} />}
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -718,7 +753,7 @@ function Forecasting() {
               <div className="fx-insight-card"><span>Average Predicted Revenue</span><strong>{formatCurrency(averagePredictedRevenue)}</strong><small>Across {predictions.length} forecast days</small></div>
               <div className="fx-insight-card"><span>Forecast Period</span><strong className="fx-insight-value-sm">{forecastPeriod}</strong></div>
               <div className="fx-insight-card"><span>Best Forecast Day</span><strong>{bestForecastDay ? formatDate(bestForecastDay.Order_Date) : "—"}</strong><small>Highest predicted revenue</small></div>
-              <div className="fx-insight-card"><span>Worst Forecast Day</span><strong>{worstForecastDay ? formatDate(worstForecastDay.Order_Date) : "—"}</strong><small>Largest prediction error</small></div>
+              <div className="fx-insight-card"><span>Worst Forecast Day</span><strong>{worstForecastDay ? formatDate(worstForecastDay.Order_Date) : "—"}</strong><small>Largest prediction error (Historical)</small></div>
             </div>
           </section>
 
@@ -726,11 +761,11 @@ function Forecasting() {
           <section className="fx-panel">
             <div className="fx-section-header">
               <span className="fx-eyebrow"><Radar size={14} /> Prediction Accuracy</span>
-              <h2>How Close Are the Predictions?</h2>
+              <h2>How Close Were The Historical Predictions?</h2>
             </div>
             <div className="fx-accuracy-grid">
               <div className="fx-accuracy-chart">
-                <p className="fx-panel-caption">Actual vs. predicted revenue — points closer to the dashed line indicate more accurate predictions.</p>
+                <p className="fx-panel-caption">Actual vs. predicted revenue — points closer to the dashed line indicate more accurate historical predictions.</p>
                 <ResponsiveContainer width="100%" height={260}>
                   <ScatterChart>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -777,7 +812,7 @@ function Forecasting() {
           <section className="fx-panel">
             <div className="fx-section-header">
               <span className="fx-eyebrow"><AlertTriangle size={14} /> Error Analysis</span>
-              <h2>Prediction Error by Day</h2>
+              <h2>Prediction Error by Day (Historical)</h2>
             </div>
             <p className="fx-panel-caption">Bars above zero mean the model under-predicted revenue; bars below zero mean it over-predicted. Color reflects magnitude relative to average absolute error ({formatNumber(avgAbsError)}).</p>
             {errorChartData.length > 0 ? (
@@ -796,7 +831,7 @@ function Forecasting() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="empty-state"><AlertTriangle size={28} /><h4>No error data available</h4><p>Prediction error requires at least one forecast row.</p></div>
+              <div className="empty-state"><AlertTriangle size={28} /><h4>No error data available</h4><p>Prediction error requires at least one historical forecast row.</p></div>
             )}
             {distributionData.length > 0 && (
               <>
@@ -855,9 +890,11 @@ function Forecasting() {
                     {filteredSortedRows.map((row, index) => (
                       <tr key={row.Order_Date ?? index}>
                         <td>{formatDate(row.Order_Date)}</td>
-                        <td>{formatCurrency(row.Revenue)}</td>
+                        <td>{row.Revenue != null ? formatCurrency(row.Revenue) : "—"}</td>
                         <td>{formatCurrency(row.Predicted_Revenue)}</td>
-                        <td className={getErrorSeverityClass(Math.abs(row.error), avgAbsError)}>{formatSignedCurrency(row.error)}</td>
+                        <td className={getErrorSeverityClass(row.error != null ? Math.abs(row.error) : null, avgAbsError)}>
+                          {row.error != null ? formatSignedCurrency(row.error) : "—"}
+                        </td>
                         <td>{row.predictionPct.toFixed(1)}%</td>
                         <td>{row.accuracyPct != null ? `${row.accuracyPct.toFixed(1)}%` : "—"}</td>
                       </tr>
@@ -922,8 +959,8 @@ function Forecasting() {
                 <div className="fx-model-info-item"><span>Testing Days</span><strong>{formatNumber(metrics.test_days)}</strong></div>
                 <div className="fx-model-info-item"><span>Model Accuracy (R²)</span><strong>{metrics.R2.toFixed(2)}</strong></div>
                 <div className="fx-model-info-item"><span>Reliability</span><strong>{health.reliability}</strong></div>
-                <div className="fx-model-info-item"><span>Version</span><strong>v1.0</strong></div>
-                <div className="fx-model-info-item fx-model-info-wide"><span>Future Ready</span><strong>Forecast Horizon, Region, and Category controls are built and will activate automatically once the backend supports them.</strong></div>
+                <div className="fx-model-info-item"><span>Version</span><strong>v2.0 (Future Ready)</strong></div>
+                <div className="fx-model-info-item fx-model-info-wide"><span>Status</span><strong>Forecast Horizon, Region, and Category controls are now active and retrieving live backend data.</strong></div>
               </div>
             )}
           </section>

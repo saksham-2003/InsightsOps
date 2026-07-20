@@ -1,12 +1,14 @@
+# src/agents/tools.py
 from src.kpi_engine import calculate_kpis
 from src.analyzer import generate_business_analysis
-
+from api.services.analytics_engine import filter_dataframe
 from src.ml.anomaly_detector import (
     detect_transaction_anomalies
 )
 
 from src.ml.forecaster import (
-    train_revenue_forecaster
+    train_revenue_forecaster,
+    forecast_future_revenue
 )
 
 
@@ -100,23 +102,50 @@ def get_anomaly_summary(df):
     }
 
 
-def get_forecast_evaluation(df):
+def get_forecast_evaluation(
+    df,
+    region=None,
+    category=None,
+    horizon=30,
+    custom_date=None,
+):
     """
-    Tool: Train forecasting model and return evaluation.
+    Tool: Train forecasting model and return evaluation + future forecast.
     """
-
-    model, results, metrics = (
-        train_revenue_forecaster(df)
+    filtered_df = filter_dataframe(
+        df,
+        region=region,
+        category=category
     )
+    
+    if filtered_df.empty:
+        return {
+            "success": False,
+            "message": "No data available for the selected filters."
+        }
+        
+    model, results, metrics = (
+        train_revenue_forecaster(filtered_df)
+    )
+    
+    future_forecast = forecast_future_revenue(
+        model, 
+        filtered_df, 
+        horizon=horizon, 
+        custom_date=custom_date
+    )
+    
+    # Append the future forecast to the historical evaluation tail
+    historical = results.tail(30).copy()
+    historical["Order_Date"] = historical["Order_Date"].dt.strftime("%Y-%m-%d")
+    historical_records = historical.to_dict(orient="records")
 
     return {
         "metrics": metrics,
-
-        "predictions": (
-            results.tail(10)
-            .to_dict(orient="records")
-        )
+        "predictions": historical_records + future_forecast
     }
+
+
 def get_period_drilldown(df, month=None, year=None):
     """
     Tool: Analyze business performance for a specific

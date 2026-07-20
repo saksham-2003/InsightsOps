@@ -34,8 +34,15 @@ def get_anomalies(
     }
 
 
+from typing import Optional
+from fastapi import Query
+
 @router.get("/forecast-evaluation")
 def get_forecast_evaluation(
+    region: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    horizon: int = Query(30),
+    customDate: Optional[str] = Query(None),
     df=Depends(get_cleaned_dataframe)
 ):
     """
@@ -45,7 +52,13 @@ def get_forecast_evaluation(
 
     result = TOOL_REGISTRY[
         "forecast_evaluation"
-    ](df)
+    ](
+        df,
+        region=region,
+        category=category,
+        horizon=horizon,
+        custom_date=customDate
+    )
 
     return {
         "success": True,
