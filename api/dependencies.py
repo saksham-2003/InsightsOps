@@ -6,6 +6,7 @@ from src.data_cleaner import clean_data
 
 @lru_cache(maxsize=1)
 def get_cleaned_dataframe():
+    print("ENTERED get_cleaned_dataframe")
     """
     Load and clean the default dataset once.
 
@@ -18,5 +19,5 @@ def get_cleaned_dataframe():
     df = load_data(file_path)
 
     cleaned_df, _ = clean_data(df)
-
+    print("Returning dataframe")
     return cleaned_df

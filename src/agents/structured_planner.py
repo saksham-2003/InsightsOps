@@ -1,8 +1,9 @@
 import json
 
 from src.agents.llm_client import (
-    get_groq_client,
-    create_chat_completion_with_retry
+    get_llm_client,
+    create_chat_completion_with_retry,
+    extract_response_text
 )
 
 AVAILABLE_TOOLS = [
@@ -21,7 +22,7 @@ AVAILABLE_TOOLS = [
 
 def create_structured_plan(user_query):
 
-    client = get_groq_client()
+    client = get_llm_client()
 
 
     system_prompt = """
@@ -67,21 +68,19 @@ overall regional comparison across the entire dataset.
 Arguments: {}
 
 Use for:
-overall top product analysis.
+highest revenue, highest profit, and best-selling products.
 
+6. bottom_products
+Arguments: {}
 
-6. anomaly_detection
+Use for:
+lowest revenue, lowest profit, loss-making products, negative margins, and worst-performing products.
+
+7. anomaly_detection
 Arguments: {}
 
 Use for:
 unusual transactions and transaction outliers.
-
-
-7. forecast_evaluation
-Arguments: {}
-
-Use for:
-forecasting model evaluation and prediction questions.
 
 
 8. period_drilldown
@@ -183,7 +182,7 @@ at the intersection of time and geography.
     response = create_chat_completion_with_retry(
         client,
 
-        model="openai/gpt-oss-20b",
+        model="planner",
 
         messages=[
             {
@@ -204,12 +203,7 @@ at the intersection of time and geography.
     )
 
 
-    content = (
-        response
-        .choices[0]
-        .message.content
-    )
-
+    content = extract_response_text(response)
 
     plan = json.loads(content)
 

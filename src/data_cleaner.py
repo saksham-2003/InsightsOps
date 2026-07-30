@@ -60,6 +60,9 @@ def clean_data(df):
                     errors="coerce"
                 )
 
+                # Shift dates for demo dataset
+                cleaned_df[column] = cleaned_df[column] + pd.DateOffset(years=3)
+
                 cleaning_report["date_columns_converted"].append(column)
 
             except Exception:
@@ -74,3 +77,9 @@ def clean_data(df):
 
 
     return cleaned_df, cleaning_report
+
+    for column in cleaned_df.columns:
+        if "date" in column.lower():
+            print(f"{column} Range:")
+            print(cleaned_df[column].min())
+            print(cleaned_df[column].max())

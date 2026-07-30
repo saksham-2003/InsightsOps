@@ -34,7 +34,7 @@ import {
   HeartPulse,
   ListChecks,
   Lightbulb,
-  LineChart as LineChartIcon,
+  LineChart as LineChart,
   SlidersHorizontal,
   Search,
   ArrowUpDown,
@@ -204,7 +204,9 @@ function ScatterTooltip({ active, payload }) {
 function Forecasting() {
   const [forecastData, setForecastData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [error, setError] = useState(null);
+  const [historicalEndDate, setHistoricalEndDate] = useState(null);
 
   const [availableRegions, setAvailableRegions] = useState([]);
   const [availableCategories, setAvailableCategories] = useState([]);
@@ -222,7 +224,7 @@ function Forecasting() {
   const [modelInfoOpen, setModelInfoOpen] = useState(false);
   const [tableSearch, setTableSearch] = useState("");
   const [sortKey, setSortKey] = useState("Order_Date");
-  const [sortDir, setSortDir] = useState("desc"); // Defaults to showing latest future first
+  const [sortDir, setSortDir] = useState("desc");
 
   // Initialize filter dropdowns
   useEffect(() => {
@@ -234,34 +236,70 @@ function Forecasting() {
   }, []);
 
   const loadForecast = useCallback(async () => {
+    if (horizon === "custom" && !customDate) {
+      return; 
+    }
+
     setLoading(true);
     setError(null);
 
     try {
+      const reqHorizon = horizon === "custom" ? 30 : parseInt(horizon, 10);
+      const reqCustomDate = horizon === "custom" ? customDate : null;
+
       const response = await getForecastEvaluation({
-        horizon,
+        horizon: reqHorizon,
         region: regionFilter,
         category: categoryFilter,
-        customDate,
+        customDate: reqCustomDate,
       });
 
-      if (response.success === false) {
-        setError(response.message || "No data available for the selected filters.");
-        setForecastData(null);
+      if (response.success === false || response.error) {
+        setError(response.message || response.error || "Validation failed.");
+        if (isInitialLoad) {
+           setForecastData(null);
+        }
       } else {
-        setForecastData(response.data || response);
+        const data = response.data || response;
+        setForecastData(data);
+        setError(null);
+        
+        // Track the last historical date to empower the date picker limits locally
+        if (data.predictions && data.predictions.length > 0) {
+            const historicals = data.predictions.filter(p => p.Revenue != null);
+            if (historicals.length > 0) {
+                setHistoricalEndDate(historicals[historicals.length - 1].Order_Date);
+            }
+        }
       }
     } catch (err) {
       console.error(err);
       setError("Unable to load forecast data. Please verify backend connection.");
+      if (isInitialLoad) {
+          setForecastData(null);
+      }
     } finally {
       setLoading(false);
+      setIsInitialLoad(false);
     }
-  }, [horizon, regionFilter, categoryFilter, customDate]);
+  }, [horizon, regionFilter, categoryFilter, customDate, isInitialLoad]);
 
   useEffect(() => {
     loadForecast();
   }, [loadForecast]);
+
+  const dateLimits = useMemo(() => {
+    if (!historicalEndDate) return {};
+    const base = new Date(historicalEndDate);
+    const min = new Date(base);
+    min.setDate(min.getDate() + 1);
+    const max = new Date(base);
+    max.setDate(max.getDate() + 365);
+    return {
+        min: min.toISOString().split('T')[0],
+        max: max.toISOString().split('T')[0]
+    };
+  }, [historicalEndDate]);
 
   const metrics = forecastData?.metrics;
   const predictions = useMemo(() => forecastData?.predictions ?? [], [forecastData]);
@@ -524,7 +562,7 @@ function Forecasting() {
     }
   }, [metrics, forecastPeriod, health, trend, recommendations, enhancedRows]);
 
-  if (loading) {
+  if (isInitialLoad && loading) {
     return (
       <div className="fx-page fx-fade-in">
         <header className="fx-hero">
@@ -552,16 +590,36 @@ function Forecasting() {
       </header>
 
       {error && (
-        <div className="error-message" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+        <div className="fx-validation-banner">
+          <AlertTriangle size={18} />
           <span>{error}</span>
-          <button onClick={loadForecast} className="fx-retry-btn">
-            <RefreshCw size={14} /> Retry
-          </button>
+          {isInitialLoad && (
+            <button onClick={loadForecast} className="fx-retry-btn" style={{ marginLeft: "auto" }}>
+              <RefreshCw size={14} /> Retry
+            </button>
+          )}
         </div>
       )}
 
-      {!error && metrics && (
-        <>
+      {(!metrics && !isInitialLoad && error) ? (
+          <div className="fx-panel fx-error-panel" style={{ padding: "60px", textAlign: "center", borderColor: "#fecaca", background: "#fef2f2" }}>
+            <AlertTriangle size={42} color="#dc2626" style={{ margin: "0 auto 16px" }} />
+            <h3 style={{ color: "#991b1b", marginBottom: "12px" }}>Forecast Evaluation Failed</h3>
+            <p style={{ color: "#b91c1c", marginBottom: "24px" }}>{error}</p>
+            <button onClick={loadForecast} className="fx-retry-btn">
+              <RefreshCw size={14} /> Attempt Reload
+            </button>
+          </div>
+      ) : metrics && (
+        <div className={`fx-data-wrapper ${!isInitialLoad && loading ? 'is-loading' : ''}`}>
+          
+          {!isInitialLoad && loading && (
+             <div className="fx-loading-overlay">
+                 <RefreshCw className="fx-spin-icon" size={32} />
+                 <span>Calculating Future Forecast...</span>
+             </div>
+          )}
+
           {/* FORECAST CONTROL PANEL */}
           <section className="fx-panel fx-controls">
             <div className="fx-section-header">
@@ -575,6 +633,7 @@ function Forecasting() {
                   {HORIZON_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
+                      disabled={loading}
                       className={`fx-pill ${horizon === opt.value ? "fx-pill-active" : ""}`}
                       onClick={() => setHorizon(opt.value)}
                     >
@@ -585,23 +644,33 @@ function Forecasting() {
                 {horizon === "custom" && (
                   <div style={{ marginTop: 8 }}>
                     <label htmlFor="fx-custom-date">Forecast Until</label>
-                    <input id="fx-custom-date" type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)} className="fx-date-input" />
+                    <input 
+                      id="fx-custom-date" 
+                      type="date" 
+                      disabled={loading}
+                      value={customDate} 
+                      onChange={(e) => setCustomDate(e.target.value)} 
+                      className="fx-date-input" 
+                      min={dateLimits.min}
+                      max={dateLimits.max}
+                      title={dateLimits.max ? `Maximum allowed date is ${dateLimits.max}` : ""}
+                    />
                   </div>
                 )}
                 <p className="fx-control-note">
-                    <Info size={12} /> Forecast updates automatically when the horizon changes.
+                    <Info size={12} /> Forecast updates automatically when parameters change.
                 </p>
               </div>
               <div className="fx-control-group">
                 <label>Region</label>
-                <select className="fx-select" value={regionFilter} onChange={e => setRegionFilter(e.target.value)}>
+                <select className="fx-select" disabled={loading} value={regionFilter} onChange={e => setRegionFilter(e.target.value)}>
                   <option value="All">All Regions</option>
                   {availableRegions.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
               <div className="fx-control-group">
                 <label>Category</label>
-                <select className="fx-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+                <select className="fx-select" disabled={loading} value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
                   <option value="All">All Categories</option>
                   {availableCategories.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -734,7 +803,7 @@ function Forecasting() {
               </div>
             ) : (
               <div className="empty-state">
-                <LineChartIcon size={28} />
+                <LineChart size={28} />
                 <h4>No forecast data available</h4>
                 <p>The forecast evaluation endpoint returned no predictions.</p>
               </div>
@@ -871,7 +940,7 @@ function Forecasting() {
             <div className="fx-table-toolbar">
               <div className="fx-search-wrap">
                 <Search size={15} className="fx-search-icon" />
-                <input type="text" placeholder="Search by date..." value={tableSearch} onChange={(e) => setTableSearch(e.target.value)} className="fx-search-input" />
+                <input type="text" placeholder="Search by date..." value={tableSearch} onChange={(e) => setTableSearch(e.target.value)} className="fx-search-input" disabled={loading} />
               </div>
             </div>
             {filteredSortedRows.length > 0 ? (
@@ -967,10 +1036,10 @@ function Forecasting() {
 
           {/* EXPORTS */}
           <section className="export-section fx-export">
-            <button className="export-button" onClick={handleExportCsv}><Download size={15} style={{ marginRight: 6 }} /> Download CSV</button>
-            <button className="export-button secondary" onClick={handleExportPdf}><FileText size={15} style={{ marginRight: 6 }} /> Export PDF</button>
+            <button className="export-button" disabled={loading} onClick={handleExportCsv}><Download size={15} style={{ marginRight: 6 }} /> Download CSV</button>
+            <button className="export-button secondary" disabled={loading} onClick={handleExportPdf}><FileText size={15} style={{ marginRight: 6 }} /> Export PDF</button>
           </section>
-        </>
+        </div>
       )}
     </div>
   );

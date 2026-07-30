@@ -8,12 +8,17 @@ from api.dependencies import (
 from src.agents.agent_workflow import (
     run_insightsops_agent
 )
-
+from src.agents.state import ConversationMemoryManager
 
 router = APIRouter(
     prefix="/api/agent",
     tags=["AI Business Analyst"]
 )
+
+# Shared ConversationMemoryManager instance at module level for development persistence.
+# Future Ready: This shared instance can later be replaced by Redis, a Session Manager,
+# or a Database without changing the endpoint logic.
+shared_memory_manager = ConversationMemoryManager()
 
 
 class AgentQueryRequest(BaseModel):
@@ -41,7 +46,8 @@ def query_agent(
 
     result = run_insightsops_agent(
         request.question,
-        df
+        df,
+        memory_manager=shared_memory_manager
     )
 
 
@@ -67,16 +73,6 @@ def query_agent(
         {}
     )
 
-    analysis = result.get(
-        "analysis",
-        {}
-    )
-
-    recommendations = result.get(
-        "recommendations",
-        {}
-    )
-
 
     tool_trace = []
 
@@ -93,6 +89,13 @@ def query_agent(
             )
         })
 
+    if not tool_trace:
+        for tool_name in result.get("metadata", {}).get("tools_used", []):
+            tool_trace.append({
+                "tool": tool_name,
+                "arguments": {}
+            })
+
 
     return {
         "success": True,
@@ -100,49 +103,20 @@ def query_agent(
         "question": request.question,
 
         "intent": plan.get(
-            "intent"
+            "intent", plan.get("intents", ["General Analysis"])[0] if isinstance(plan.get("intents"), list) else None
         ),
 
         "plan_reason": plan.get(
-            "reason"
+            "reason", ""
         ),
 
         "tools_used": tool_trace,
 
-        "executive_summary": analysis.get(
-            "executive_summary"
-        ),
+        "analysis": result.get("final_response", {}),
 
-        "key_findings": analysis.get(
-            "key_findings",
-            []
-        ),
+        "evidence": result.get("evidence", {}),
 
-        "risks_or_cautions": analysis.get(
-            "risks_or_cautions",
-            []
-        ),
+        "metadata": result.get("metadata", {}),
 
-        "confidence": analysis.get(
-            "confidence"
-        ),
-
-        "confidence_reason": analysis.get(
-            "confidence_reason"
-        ),
-
-        "priority_actions": recommendations.get(
-            "priority_actions",
-            []
-        ),
-
-        "experiments": recommendations.get(
-            "experiments",
-            []
-        ),
-
-        "monitoring_metrics": recommendations.get(
-            "monitoring_metrics",
-            []
-        )
+        "errors": result.get("errors", [])
     }

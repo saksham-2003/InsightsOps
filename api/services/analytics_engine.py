@@ -43,7 +43,11 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 COL_DATE = "Order_Date"
 COL_REGION = "Region"
+COL_COUNTRY = "Country"
+COL_STATE = "State"
+COL_CITY = "City"
 COL_CATEGORY = "Category"
+COL_SUB_CATEGORY = "Sub_Category"
 COL_PRODUCT = "Product_Name"
 COL_ORDER_ID = "Order_ID"
 COL_QUANTITY = "Quantity"
@@ -65,7 +69,21 @@ def _is_empty_filter(value):
 # ---------------------------------------------------------------------------
 # STEP 1 — Reusable filtering engine
 # ---------------------------------------------------------------------------
-def filter_dataframe(df, year=None, month=None, region=None, category=None):
+def filter_dataframe(
+    df,
+    year=None,
+    month=None,
+    region=None,
+    category=None,
+    sub_category=None,
+    country=None,
+    state=None,
+    city=None,
+    product=None,
+    customer=None,
+    start_date=None,
+    end_date=None,
+):
     """
     Filter the dataframe by any combination of optional filters.
 
@@ -99,11 +117,60 @@ def filter_dataframe(df, year=None, month=None, region=None, category=None):
             filtered[COL_REGION].astype(str).str.strip().str.lower() == str(region).strip().lower()
         ]
 
+    if not _is_empty_filter(country) and _has(filtered, COL_COUNTRY):
+        filtered = filtered[
+            filtered[COL_COUNTRY].astype(str).str.strip().str.lower() == str(country).strip().lower()
+        ]
+
+    if not _is_empty_filter(state) and _has(filtered, COL_STATE):
+        filtered = filtered[
+            filtered[COL_STATE].astype(str).str.strip().str.lower() == str(state).strip().lower()
+        ]
+
+    if not _is_empty_filter(city) and _has(filtered, COL_CITY):
+        filtered = filtered[
+            filtered[COL_CITY].astype(str).str.strip().str.lower() == str(city).strip().lower()
+        ]
+
     if not _is_empty_filter(category) and _has(filtered, COL_CATEGORY):
         filtered = filtered[
             filtered[COL_CATEGORY].astype(str).str.strip().str.lower() == str(category).strip().lower()
         ]
 
+    if not _is_empty_filter(sub_category) and _has(filtered, COL_SUB_CATEGORY):
+        filtered = filtered[
+            filtered[COL_SUB_CATEGORY].astype(str).str.strip().str.lower() == str(sub_category).strip().lower()
+        ]
+
+    if not _is_empty_filter(product) and _has(filtered, COL_PRODUCT):
+        filtered = filtered[
+            filtered[COL_PRODUCT].astype(str).str.strip().str.lower() == str(product).strip().lower()
+        ]
+
+    if not _is_empty_filter(customer) and _has(filtered, COL_CUSTOMER):
+        filtered = filtered[
+            filtered[COL_CUSTOMER].astype(str).str.strip().str.lower() == str(customer).strip().lower()
+        ]
+
+    # Filter by start date
+    if start_date and _has(filtered, COL_DATE):
+        try:
+            start_dt = pd.to_datetime(start_date)
+            filtered = filtered[
+                filtered[COL_DATE] >= start_dt
+            ]
+        except Exception:
+            filtered = filtered.iloc[0:0]
+
+    # Filter by end date
+    if end_date and _has(filtered, COL_DATE):
+        try:
+            end_dt = pd.to_datetime(end_date)
+            filtered = filtered[
+                filtered[COL_DATE] <= end_dt
+            ]
+        except Exception:
+            filtered = filtered.iloc[0:0]
     return filtered
 
 
@@ -338,6 +405,42 @@ def calculate_top_products(df, limit=10):
 
     return result
 
+def calculate_bottom_products(df, limit=10):
+    if df.empty or not _has(df, COL_PRODUCT) or not _has(df, COL_REVENUE):
+        return []
+
+    agg_cols = {COL_REVENUE: "sum"}
+    if _has(df, COL_PROFIT):
+        agg_cols[COL_PROFIT] = "sum"
+    if _has(df, COL_QUANTITY):
+        agg_cols[COL_QUANTITY] = "sum"
+
+    grouped = df.groupby(COL_PRODUCT).agg(agg_cols).reset_index()
+    grouped = grouped.sort_values(COL_REVENUE, ascending=True).head(limit)
+
+    growth_map = _growth_by_group(df, COL_PRODUCT)
+
+    result = []
+    for rank, (_, row) in enumerate(grouped.iterrows(), start=1):
+        product = row[COL_PRODUCT]
+        entry = {
+            "Profit_Margin":
+            round(
+                (row[COL_PROFIT] / row[COL_REVENUE]) * 100,
+                2
+            ) if COL_PROFIT in agg_cols and row[COL_REVENUE] != 0 else None,
+            "Bottom_Rank": rank,
+            "Product": product,
+            "Revenue": round(float(row[COL_REVENUE]), 2),
+            "Growth": growth_map.get(product),
+        }
+        if COL_PROFIT in agg_cols:
+            entry["Profit"] = round(float(row[COL_PROFIT]), 2)
+        if COL_QUANTITY in agg_cols:
+            entry["Units"] = float(row[COL_QUANTITY])
+        result.append(entry)
+
+    return result
 
 # ---------------------------------------------------------------------------
 # STEP 9 — Business Insights (generated dynamically, never hardcoded)

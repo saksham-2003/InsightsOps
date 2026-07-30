@@ -1,3 +1,4 @@
+// src/services/api.js
 import axios from "axios";
 
 const api = axios.create({
@@ -5,7 +6,6 @@ const api = axios.create({
   timeout: 120000,
 });
 
-// MODIFIED: Now accepts filter parameters to request a specific slice of data
 export const getDashboardOverview = async (filters = {}) => {
   const params = new URLSearchParams();
   
@@ -18,8 +18,9 @@ export const getDashboardOverview = async (filters = {}) => {
   return response.data;
 };
 
+// MODIFIED: Maps directly to the new ai-analyst ml route
 export const queryAIAnalyst = async (question) => {
-  const response = await api.post("/api/agent/query", { question });
+  const response = await api.post("/api/ml/ai-analyst", { question });
   return response.data;
 };
 
@@ -31,27 +32,26 @@ export const getMonthlyTrend = async () => {
 export const getForecastEvaluation = async (filters = {}) => {
   const params = new URLSearchParams();
 
-  if (filters.horizon)
-    params.append("horizon", filters.horizon);
+  if (filters.horizon) params.append("horizon", filters.horizon);
+  if (filters.region && filters.region !== "All") params.append("region", filters.region);
+  if (filters.category && filters.category !== "All") params.append("category", filters.category);
+  if (filters.customDate) params.append("customDate", filters.customDate);
 
-  if (filters.region && filters.region !== "All")
-    params.append("region", filters.region);
-
-  if (filters.category && filters.category !== "All")
-    params.append("category", filters.category);
-
-  if (filters.customDate)
-    params.append("customDate", filters.customDate);
-
-  const response = await api.get(
-    `/api/ml/forecast-evaluation?${params.toString()}`
-  );
-
+  const response = await api.get(`/api/ml/forecast-evaluation?${params.toString()}`);
   return response.data;
 };
 
-export const getAnomalies = async () => {
-  const response = await api.get("/api/ml/anomalies");
+export const getAnomalies = async (filters = {}) => {
+  const params = new URLSearchParams();
+
+  if (filters.region && filters.region !== "All") params.append("region", filters.region);
+  if (filters.category && filters.category !== "All") params.append("category", filters.category);
+  if (filters.startDate) params.append("startDate", filters.startDate);
+  if (filters.endDate) params.append("endDate", filters.endDate);
+  if (filters.severity && filters.severity !== "All") params.append("severity", filters.severity);
+  if (filters.search) params.append("search", filters.search);
+
+  const response = await api.get(`/api/ml/anomalies?${params.toString()}`);
   return response.data;
 };
 

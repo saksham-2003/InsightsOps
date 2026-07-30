@@ -1,186 +1,244 @@
 import json
+import logging
+from typing import Dict, Any, List
 
 from src.agents.llm_client import (
-    get_groq_client,
-    create_chat_completion_with_retry
+    get_llm_client,
+    create_chat_completion_with_retry,
+    extract_response_text
 )
 
-def generate_recommendations(
-    user_query,
-    plan,
-    execution,
-    analysis,
-    derived_evidence
-):
+class BusinessRecommendationEngine:
     """
-    Generate business recommendations grounded
-    in analytical evidence and analyst findings.
+    Intelligent Recommendation Engine for InsightsOps.
+
+    Transforms structured analytical evidence into actionable, high-value 
+    business action plans. Designed to act as an experienced Business Consultant.
+
+    Architected for Future Agentic Extensions:
+    - Industry-specific rules mapping
+    - External Business Rule Engines
+    - Enterprise Knowledge Graphs
+    - Company Policies Integration
+    - Multi-agent Reflection & Self-Critique
     """
 
-    client = get_groq_client()
+    def __init__(self, user_query: str, plan: Dict[str, Any], execution: Dict[str, Any], analysis: Dict[str, Any], derived_evidence: Dict[str, Any]):
+        self.user_query = user_query
+        self.plan = plan
+        self.execution = execution
+        self.analysis = analysis
+        self.derived_evidence = derived_evidence
+        
+        self.client = get_llm_client()
+        self.model = "reasoning"
+        self.temperature = 0.0
 
+    # =========================================================================
+    # EXTENSIBILITY HOOKS (Task 10: Future Compatibility)
+    # =========================================================================
 
-    # Prepare complete context for the Recommendation Agent
+    def _apply_industry_rules(self) -> Dict[str, Any]:
+        """Hook: Inject industry-specific operating standards."""
+        return {}
 
-    context = {
-        "user_query": user_query,
+    def _apply_business_rule_engine(self) -> Dict[str, Any]:
+        """Hook: Interface with external deterministic rule engines."""
+        return {}
 
-        "intent": plan.get("intent"),
+    def _retrieve_knowledge_graph(self) -> Dict[str, Any]:
+        """Hook: Retrieve contextual mapping from an enterprise knowledge graph."""
+        return {}
 
-        "analysis": analysis,
+    def _apply_company_policies(self) -> Dict[str, Any]:
+        """Hook: Inject internal company policies to constrain recommendations."""
+        return {}
 
-        "verified_derived_evidence":
-            derived_evidence
+    def _reflection_critique(self, recommendations: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Hook: Multi-agent reflection to audit recommendation feasibility, 
+        merge duplicates, and rank by importance.
+        """
+        # Base validation to ensure backwards compatibility with UI
+        if "priority_actions" not in recommendations:
+            recommendations["priority_actions"] = []
+            
+        # Guarantee frontend compatibility fields
+        for action in recommendations.get("priority_actions", []):
+            if "title" in action and "action" not in action:
+                action["action"] = action["title"]
+            elif "action" in action and "title" not in action:
+                action["title"] = action["action"]
+                
+        return recommendations
 
-    }
+    # =========================================================================
+    # CORE ENGINE PROMPT & GENERATION
+    # =========================================================================
 
+    def _build_context(self) -> Dict[str, Any]:
+        """Consolidates relevant business context for the LLM."""
+        return {
+            "user_query": self.user_query,
+            "intent": self.plan.get("intent"),
+            "analysis": self.analysis,
+            "verified_derived_evidence": self.derived_evidence,
+            "future_hooks": {
+                "industry_rules": self._apply_industry_rules(),
+                "business_rules": self._apply_business_rule_engine(),
+                "company_policies": self._apply_company_policies()
+            }
+        }
 
-    system_prompt = """
-You are the Recommendation Agent for InsightsOps.
+    def _build_system_prompt(self) -> str:
+        """Constructs the strict, persona-driven system prompt."""
+        return """
+You are the Principal Business Consultant and Recommendation Agent for InsightsOps.
 
-Your job is to propose practical business actions based
-only on the supplied evidence and analysis.
+Your objective is to generate highly strategic, actionable, and evidence-backed business recommendations based ONLY on the supplied evidence and analysis.
 
-STRICT RULES:
+STRICT GROUNDING RULES (Task 1 & 9):
+1. Recommendations MUST be derived directly from the provided evidence. Never hallucinate scenarios, metrics, or causes.
+2. If evidence is lacking, recommend investigation or data auditing rather than assuming a cause.
 
-1. Recommendations must be directly connected to evidence.
+SITUATIONAL LOGIC (Task 2):
+Base your recommendations on the detected business situations:
+- If Revenue decreasing -> Investigate customer demand, optimize pricing, review seasonal trends.
+- If Profit decreasing -> Review operational costs, reduce discounting, audit supplier contracts.
+- If Anomalies increasing -> Investigate suspicious transactions, review pricing inconsistencies, audit data quality.
+- If Forecast declining -> Increase promotional campaigns, review inventory planning, optimize resource allocation.
+- If Category underperforming -> Analyze customer behavior, review product assortment, evaluate marketing effectiveness.
 
-2. Do not invent causes that were not established.
+EVALUATION METRICS (Task 3, 4, 5 & 8):
+- Priority: Assign strictly as Critical, High, Medium, or Low.
+- Business Impact: Categorize exactly as Revenue Growth, Profit Improvement, Cost Reduction, Risk Reduction, Customer Retention, or Operational Efficiency.
+- Implementation Effort: Estimate exactly as Low, Medium, or High.
+- Timeframe: Classify exactly as Short-term, Medium-term, or Long-term.
 
-3. Do not guarantee business outcomes.
+ACTION PLAN STRUCTURING (Task 6 & 7):
+- Merge similar actions to avoid duplicates.
+- Rank recommendations strictly by business importance (Critical first, then High, etc.).
+- Ensure each action plan is comprehensive and executable.
 
-4. Distinguish immediate actions from experiments.
-
-5. When causality is uncertain, recommend testing or
-   further investigation rather than asserting a cause.
-
-6. Recommendations should be specific and measurable
-   when the evidence allows it.
-
-7. Do not recommend treating anomaly flags as fraud.
-   Recommend investigation or review.
-
-8. Keep recommendations concise and actionable.
-
-9. Do not combine separate analytical dimensions into
-   one claim unless intersection evidence is available.
-
-10. A global anomaly rate applies to the full dataset.
-    Do not describe it as a period-specific or
-    region-specific anomaly rate.
-
-11. Do not recommend a product-region strategy unless
-    evidence explicitly shows product performance
-    inside that region.
-
-12. Prefer recommendations phrased as tests when
-    cross-dimensional evidence is unavailable.
-
-13. Use VERIFIED DERIVED EVIDENCE for numerical claims,
-    percentages, ratios, shares, and margins.
-
-14. Never describe products as high-margin unless explicit
-    product margin evidence exists.
-
-15. Do not assume marketing campaigns, discounts,
-    promotions, or pricing changes caused performance
-    unless such evidence is supplied.
-
-16. If a possible cause is not represented in the dataset,
-    recommend investigating it rather than stating that
-    it occurred.
-
-17. Do not say a global anomaly rate explains or rules out
-    performance in a specific month or region.
-
-18. Never recalculate a percentage when a verified value
-    is already available in VERIFIED DERIVED EVIDENCE.
-
-19. Revenue contribution does not prove that a product
-    caused overall growth.
-
-20. Use cautious business language when evidence shows
-    association but not causation.
-
-21. If top_3_product_share_percent is provided, it refers
-    only to the top three products.
-
-22. Do not use overall regional performance as evidence
-    for a month-specific regional recommendation.
-
-23. High revenue share alone does not justify maintaining,
-    increasing, or decreasing prices.
-
-24. Pricing recommendations should be experiments unless
-    explicit pricing elasticity evidence is available.
-
-25. Do not recommend combining unrelated products into a
-    bundle solely because both appear in a top-product list.
-
-
-Return only valid JSON.
-
-Required format:
+REQUIRED JSON FORMAT:
+You MUST return ONLY valid JSON matching this exact structure to maintain frontend compatibility:
 
 {
     "priority_actions": [
         {
-            "action": "specific action",
-            "reason": "evidence-based reason",
-            "priority": "high, medium, or low"
+            "title": "Clear, professional title of the recommendation",
+            "action": "Duplicate of the title (required for UI compatibility)",
+            "reason": "Evidence-based justification for this action",
+            "business_impact": "Revenue Growth | Profit Improvement | Cost Reduction | Risk Reduction | Customer Retention | Operational Efficiency",
+            "priority": "Critical | High | Medium | Low",
+            "implementation_effort": "Low | Medium | High",
+            "suggested_actions": [
+                "Specific tactical step 1",
+                "Specific tactical step 2"
+            ],
+            "expected_outcome": "Quantifiable or strategic expected result",
+            "timeframe": "Short-term | Medium-term | Long-term"
         }
     ],
-
     "experiments": [
         {
-            "experiment": "test or investigation",
-            "success_metric": "metric to monitor"
+            "experiment": "Proposed business test or investigation",
+            "success_metric": "Specific metric to monitor for success"
         }
     ],
-
     "monitoring_metrics": [
-        "metric 1",
-        "metric 2"
+        "Metric 1 to monitor closely",
+        "Metric 2 to monitor closely"
     ]
 }
 """
 
+    def generate(self) -> Dict[str, Any]:
+        """Executes the LLM call and returns validated recommendations."""
+        system_prompt = self._build_system_prompt()
+        context_payload = json.dumps(self._build_context(), default=str)
 
-    response = create_chat_completion_with_retry(
-        client,
+        try:
+            response = create_chat_completion_with_retry(
+                self.client,
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": context_payload}
+                ],
+                temperature=0.0,
+                max_completion_tokens=2000,
+                response_format={"type": "json_object"}
+            )
 
-        model="openai/gpt-oss-20b",
+            content = extract_response_text(response)
+            raw_recommendations = json.loads(content)
 
-        messages=[
-            {
-                "role": "system",
-                "content": system_prompt
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    context,
-                    default=str
-                )
+            # Apply Reflection & formatting hook
+            return self._reflection_critique(raw_recommendations)
+
+        except Exception as e:
+            import traceback
+
+            print("\n================ LLM ERROR ================\n")
+
+            traceback.print_exc()
+
+            print("\n==========================================\n")
+
+            logging.exception("LLM Response Generation Failed")
+
+            return {
+                "executive_summary": "An error occurred while generating the business analysis.",
+                "key_findings": [],
+                "evidence": [],
+                "business_insights": [],
+                "recommendations": [],
+                "potential_risks": [],
+                "suggested_follow_up_questions": [],
+                "reflection_passed": False
             }
-        ],
+            # Safe fallback compatible with UI
+            return {
+                "priority_actions": [
+                    {
+                        "title": "System Alert: Review Analysis Logs",
+                        "action": "System Alert: Review Analysis Logs",
+                        "reason": "The recommendation engine encountered an error while processing the evidence.",
+                        "business_impact": "Operational Efficiency",
+                        "priority": "Medium",
+                        "implementation_effort": "Low",
+                        "suggested_actions": ["Review system logs for API or context constraints."],
+                        "expected_outcome": "Restored recommendation capabilities.",
+                        "timeframe": "Short-term"
+                    }
+                ],
+                "experiments": [],
+                "monitoring_metrics": []
+            }
 
-        temperature=0,
-        max_completion_tokens=1000,
-        response_format={
-            "type": "json_object"
-        }
+
+# =========================================================================
+# PUBLIC API (Maintains Existing Signature)
+# =========================================================================
+
+def generate_recommendations(
+    user_query: str,
+    plan: Dict[str, Any],
+    execution: Dict[str, Any],
+    analysis: Dict[str, Any],
+    derived_evidence: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Generate business recommendations grounded in analytical evidence 
+    and analyst findings using the BusinessRecommendationEngine.
+    """
+    engine = BusinessRecommendationEngine(
+        user_query=user_query,
+        plan=plan,
+        execution=execution,
+        analysis=analysis,
+        derived_evidence=derived_evidence
     )
-
-
-    content = (
-        response
-        .choices[0]
-        .message.content
-    )
-
-
-    recommendations = json.loads(content)
-
-
-    return recommendations
+    
+    return engine.generate()

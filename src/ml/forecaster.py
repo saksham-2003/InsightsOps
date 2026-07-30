@@ -143,29 +143,45 @@ def train_revenue_forecaster(df):
 def forecast_future_revenue(model, df, horizon=30, custom_date=None):
     """
     Generate future predictions recursively using the trained model.
+    Dynamically bounds forecasts up to 365 days beyond the last dataset date.
     """
     daily_data = prepare_daily_revenue(df)
     
     if daily_data.empty:
-        return []
+        return {"error": "No historical data available to forecast from."}
         
     last_date = daily_data["Order_Date"].max()
-    
+
     horizon_int = 30
     try:
         if horizon and str(horizon).isdigit():
             horizon_int = int(horizon)
     except Exception:
         pass
+
+    print("=" * 60)
+    print("LAST DATE IN DATASET:", last_date)
+    print("FORECAST HORIZON:", horizon_int)
+    print("=" * 60)
         
     if custom_date:
         try:
             target_date = pd.to_datetime(custom_date)
             days_diff = (target_date - last_date).days
-            if days_diff > 0:
-                horizon_int = days_diff
+            
+            # Meaningful Validation Rejections
+            if days_diff <= 0:
+                return {"error": f"Forecast date must be after the last available dataset date ({last_date.strftime('%d %b %Y')})."}
+            if days_diff > 365:
+                max_date = (last_date + pd.Timedelta(days=365)).strftime('%d %b %Y')
+                return {"error": f"Forecast horizon exceeds the maximum limit of 365 days (max date allowed: {max_date})."}
+                
+            horizon_int = days_diff
         except Exception:
-            pass
+            return {"error": "Invalid custom date format provided."}
+    else:
+        if horizon_int > 365:
+            horizon_int = 365
 
     working_df = daily_data.copy()
     future_predictions = []
@@ -173,8 +189,10 @@ def forecast_future_revenue(model, df, horizon=30, custom_date=None):
     for i in range(horizon_int):
         next_date = last_date + pd.Timedelta(days=i+1)
         
-        # Append an empty row for the future date to process lags
-        new_row = pd.DataFrame([{"Order_Date": next_date, "Revenue": np.nan}])
+        # We append a dummy Revenue of 0.0 to prevent dropna() from stripping 
+        # the new row during feature generation. Because all lag and rolling 
+        # features use .shift(1), this row's own dummy value won't corrupt its features.
+        new_row = pd.DataFrame([{"Order_Date": next_date, "Revenue": 0.0}])
         working_df = pd.concat([working_df, new_row], ignore_index=True)
         
         # Re-calculate features on the extended dataset
@@ -197,7 +215,7 @@ def forecast_future_revenue(model, df, horizon=30, custom_date=None):
         
         future_predictions.append({
             "Order_Date": next_date.strftime("%Y-%m-%d"),
-            "Revenue": None, # Future has no actual revenue yet
+            "Revenue": None, # Explicitly null since this is future forecasting
             "Predicted_Revenue": float(pred_val)
         })
         
