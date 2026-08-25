@@ -1,6 +1,6 @@
 import { DollarSign, TrendingUp, ShoppingCart, Percent } from "lucide-react";
 
-import KpiCard from "./KpiCard";
+import KpiCard from "./kpiCard";
 import { formatCurrency, formatNumber } from "../utils/format";
 
 function KPISection({ kpis }) {
