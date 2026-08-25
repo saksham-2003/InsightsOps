@@ -1,4 +1,4 @@
-import Topbar from "../components/Topbar";
+import Topbar from "../components/topbar";
 import KPISection from "../components/KPISection";
 import RevenueChart from "../components/RevenueChart";
 import CategoryChart from "../components/CategoryChart";
