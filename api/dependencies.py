@@ -14,7 +14,7 @@ def get_cleaned_dataframe():
     across API requests.
     """
 
-    file_path = "data/raw/data.csv"
+    file_path = "data/raw/data_2025_2026.csv"
 
     df = load_data(file_path)
 

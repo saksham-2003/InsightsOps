@@ -35,15 +35,45 @@ const formatCurrency = (v) => `$${(v || 0).toLocaleString(undefined, { minimumFr
 
 const renderList = (items) => {
   if (!Array.isArray(items) || items.length === 0) return null;
-
   return (
-    <ul style={{ paddingLeft: 22, marginTop: 8, color: '#334155', lineHeight: '1.6' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
       {items.map((item, idx) => (
-        <li key={idx} style={{ marginBottom: 8 }}>
-          {item}
-        </li>
+        <div
+          key={idx}
+          style={{
+            display: 'flex',
+            gap: 14,
+            alignItems: 'flex-start',
+            padding: '13px 16px',
+            background: '#f8fafc',
+            borderRadius: 10,
+            border: '1px solid #e2e8f0',
+            transition: 'box-shadow 0.2s ease, border-color 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.boxShadow = '0 4px 14px rgba(99,102,241,0.07)';
+            e.currentTarget.style.borderColor = '#c7d2fe';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.borderColor = '#e2e8f0';
+          }}
+        >
+          <span style={{
+            minWidth: 26, height: 26, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+            color: 'white', fontSize: 11, fontWeight: 800,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            boxShadow: '0 2px 6px rgba(99,102,241,0.25)'
+          }}>
+            {idx + 1}
+          </span>
+          <span style={{ fontSize: 14, color: '#1e293b', lineHeight: 1.7, paddingTop: 1 }}>
+            {item}
+          </span>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 };
 
@@ -94,13 +124,46 @@ function SectionCard({ icon, title, children, color = "#312e81" }) {
  */
 const extractKpis = (evidence) => {
   if (!evidence) return [];
-  
+
   const kpis = [];
-  
+
   // Unpack different possible structures in evidence
   const kpiData = evidence.kpi_summary || evidence.KPIs || evidence.kpis || {};
-  const forecastMetrics = evidence.Forecast_Metrics || evidence.forecast_evaluation?.metrics || {};
-  const forecastTrends = evidence.Forecast_Trends || evidence.forecast_evaluation?.predictions || [];
+  // evidence from AIAnalyst.jsx is keyed by tool name ("forecast_evaluation").
+  // evidence.Forecast_Metrics / Forecast_Trends only exist in the LLM context
+  // object, which is NOT what gets passed here. Always read the tool-result key
+  // first so the path is reliable; fall through to context-style keys as a backup.
+  const forecastMetrics =
+      evidence?.forecast_evaluation?.metrics ||
+      evidence?.Forecast_Metrics ||
+      {};
+
+  const rawForecastTrends =
+      evidence?.forecast_evaluation?.predictions ||   // canonical tool-result path
+      evidence?.Forecast_Trends ||                    // context-style (fallback)
+      (Array.isArray(evidence) ? evidence : []);
+
+  const forecastTrends = rawForecastTrends.filter(item => {
+      const actualRevenue = item?.Revenue ?? item?.revenue;
+
+      return (
+          (actualRevenue === null || actualRevenue === undefined) &&
+          (item?.Predicted_Revenue !== undefined ||
+          item?.predicted_revenue !== undefined)
+      );
+  });
+  console.log("========== FORECAST DEBUG ==========");
+  console.log("forecastTrends:", forecastTrends);
+  console.log("forecastTrends length:", forecastTrends.length);
+  console.log(
+    "Predicted records:",
+    forecastTrends.filter(
+      item =>
+        item.Predicted_Revenue !== undefined &&
+        item.Predicted_Revenue !== null
+    )
+  );
+  console.log("====================================");
 
   const totalRev = kpiData.total_revenue ?? kpiData.Revenue;
   if (totalRev !== undefined && totalRev !== null) {
@@ -140,43 +203,87 @@ const extractKpis = (evidence) => {
 
   // Forecast-specific KPIs
   if (forecastMetrics.r2_score !== undefined || forecastMetrics.R2 !== undefined) {
-    kpis.push({
-      title: "R² Score",
-      value: Number(forecastMetrics.r2_score ?? forecastMetrics.R2).toFixed(2),
-      icon: <Activity size={18} color="#f59e0b" />
-    });
+      kpis.push({
+          title: "R² Score",
+          value: Number(
+              forecastMetrics.r2_score ?? forecastMetrics.R2
+          ).toFixed(2),
+          icon: <Activity size={18} color="#f59e0b" />
+      });
   }
 
+
+  // ----------------------------------------------------
+  // Forecast KPIs
+  // Only use FUTURE forecast rows.
+  // Historical rows have an actual Revenue value,
+  // while future forecast rows have Revenue = null.
+  // ----------------------------------------------------
+
   if (forecastTrends.length > 0) {
-    const predictedValues = forecastTrends
-      .map(item => item.Predicted_Revenue ?? item.predicted_revenue)
-      .filter(v => v !== undefined && v !== null);
 
-    if (predictedValues.length > 0) {
-      const maxForecast = Math.max(...predictedValues);
-      const minForecast = Math.min(...predictedValues);
-      
-      kpis.push({
-        title: "Highest Forecast",
-        value: formatCurrency(maxForecast),
-        icon: <Award size={18} color="#10b981" />
-      });
+      const predictedValues = forecastTrends
+          .map(item =>
+              item.Predicted_Revenue ??
+              item.predicted_revenue
+          )
+          .filter(v => v !== undefined && v !== null)
+          .map(Number)
+          .filter(v => Number.isFinite(v));
 
-      kpis.push({
-        title: "Lowest Forecast",
-        value: formatCurrency(minForecast),
-        icon: <BarChart2 size={18} color="#ef4444" />
-      });
-    }
+      if (predictedValues.length > 0) {
 
-    kpis.push({
-      title: "Forecast Period",
-      value: `${forecastTrends.length} Days`,
-      icon: <Calendar size={18} color="#6366f1" />
-    });
+          const maxForecast = Math.max(...predictedValues);
+          const minForecast = Math.min(...predictedValues);
+
+          kpis.push({
+              title: "Highest Forecast",
+              value: formatCurrency(maxForecast),
+              icon: <Award size={18} color="#10b981" />
+          });
+
+          kpis.push({
+              title: "Lowest Forecast",
+              value: formatCurrency(minForecast),
+              icon: <BarChart2 size={18} color="#ef4444" />
+          });
+
+          kpis.push({
+              title: "Forecast Period",
+              value: `${forecastTrends.length} Days`,
+              icon: <Calendar size={18} color="#6366f1" />
+          });
+      }
   }
 
   return kpis;
+};
+
+/**
+ * Reads Phase B structured_evidence_facts from the evidence payload and
+ * returns a trend badge object for the KPI title provided.
+ * Returns null if no matching fact or no clear trend direction.
+ */
+const getTrendBadge = (kpiTitle, evidence) => {
+  const facts = evidence?.structured_evidence_facts;
+  if (!Array.isArray(facts) || facts.length === 0) return null;
+
+  const titleLower = kpiTitle.toLowerCase().replace(/\s+/g, '');
+  const fact = facts.find(f => {
+    const metricLower = (f.metric || '').toLowerCase().replace(/\s+/g, '');
+    return metricLower.includes(titleLower) || titleLower.includes(metricLower.substring(0, 6));
+  });
+
+  if (!fact) return null;
+
+  const trend = fact.trend || '';
+  if (trend === 'Increasing' || trend === 'Dominant' || trend === 'Leading')
+    return { symbol: '▲', color: '#10b981', bg: '#f0fdf4' };
+  if (trend === 'Declining' || trend === 'Lagging' || trend === 'Warning' || trend === 'Elevated')
+    return { symbol: '▼', color: '#ef4444', bg: '#fef2f2' };
+  if (trend === 'Stable' || trend === 'Current Baseline')
+    return { symbol: '—', color: '#64748b', bg: '#f8fafc' };
+  return null;
 };
 
 export default function AIResponseCard({ message, onSelectFollowUp }) {
@@ -186,8 +293,8 @@ export default function AIResponseCard({ message, onSelectFollowUp }) {
   if (!message) return null;
 
   const handleCopy = () => {
-    const textToCopy = typeof message.content === "string" 
-      ? message.content 
+    const textToCopy = typeof message.content === "string"
+      ? message.content
       : message.content?.executive_summary || "";
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
@@ -198,7 +305,7 @@ export default function AIResponseCard({ message, onSelectFollowUp }) {
 
   return (
     <div className="aia-bubble ai" style={{ width: '100%', boxSizing: 'border-box' }}>
-      
+
       {/* 1. Tool Badges */}
       {message.toolsUsed && message.toolsUsed.length > 0 && (
         <div style={{ marginBottom: 18, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -226,55 +333,70 @@ export default function AIResponseCard({ message, onSelectFollowUp }) {
               </ReactMarkdown>
             ) : (
               <div>
-                
+
                 {/* 3. KPI Summary Section (Rendered above executive summary if metrics exist) */}
                 {availableKpis.length > 0 && (
-                  <div style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', 
-                    gap: 14, 
-                    marginBottom: 24 
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                    gap: 14,
+                    marginBottom: 24
                   }}>
-                    {availableKpis.map((kpi, idx) => (
-                      <div 
-                        key={idx} 
-                        style={{ 
-                          background: '#ffffff', 
-                          border: '1px solid #e2e8f0', 
-                          borderRadius: 12, 
-                          padding: '16px 18px',
-                          boxShadow: '0 2px 6px rgba(15, 23, 42, 0.02)',
-                          transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                          cursor: 'default'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'translateY(-2px)';
-                          e.currentTarget.style.boxShadow = '0 6px 16px rgba(99, 102, 241, 0.08)';
-                          e.currentTarget.style.borderColor = '#c7d2fe';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '0 2px 6px rgba(15, 23, 42, 0.02)';
-                          e.currentTarget.style.borderColor = '#e2e8f0';
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                            {kpi.title}
-                          </span>
-                          <div style={{ padding: 6, background: '#f8fafc', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {kpi.icon}
+                    {availableKpis.map((kpi, idx) => {
+                      const badge = getTrendBadge(kpi.title, message.evidence);
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            background: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: 12,
+                            padding: '16px 18px',
+                            boxShadow: '0 2px 6px rgba(15, 23, 42, 0.02)',
+                            transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                            cursor: 'default'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 6px 16px rgba(99, 102, 241, 0.08)';
+                            e.currentTarget.style.borderColor = '#c7d2fe';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 2px 6px rgba(15, 23, 42, 0.02)';
+                            e.currentTarget.style.borderColor = '#e2e8f0';
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              {kpi.title}
+                            </span>
+                            <div style={{ padding: 6, background: '#f8fafc', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {kpi.icon}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: BLUE_DARK, letterSpacing: '-0.02em' }}>
+                              {kpi.value}
+                            </div>
+                            {badge && (
+                              <span style={{
+                                fontSize: 11, fontWeight: 700, color: badge.color,
+                                background: badge.bg, borderRadius: 6,
+                                padding: '2px 7px', letterSpacing: '0.02em'
+                              }}>
+                                {badge.symbol}
+                              </span>
+                            )}
                           </div>
                         </div>
-                        <div style={{ fontSize: 20, fontWeight: 800, color: BLUE_DARK, letterSpacing: '-0.02em' }}>
-                          {kpi.value}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
                 {/* Executive Summary Card */}
+                {message.content.executive_summary && (
                 <div
                   style={{
                     background: "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)",
@@ -299,7 +421,6 @@ export default function AIResponseCard({ message, onSelectFollowUp }) {
                   >
                     <span>📄</span> Executive Summary
                   </h2>
-
                   <p
                     style={{
                       margin: 0,
@@ -312,7 +433,8 @@ export default function AIResponseCard({ message, onSelectFollowUp }) {
                     {message.content.executive_summary}
                   </p>
                 </div>
-                
+                )}
+
                 {/* Embedded Visualization Chart */}
                 <div style={{ marginBottom: 24 }}>
                   <AIChartRenderer
@@ -321,28 +443,41 @@ export default function AIResponseCard({ message, onSelectFollowUp }) {
                   />
                 </div>
 
-                {/* Subtle Section Divider */}
-                <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', margin: '24px 0' }} />
+                {/* Section divider — only shown when content sections follow */}
+                {(message.content.key_findings?.length > 0 ||
+                  message.content.business_insights?.length > 0 ||
+                  message.content.recommendations?.length > 0 ||
+                  message.content.potential_risks?.length > 0) && (
+                  <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', margin: '8px 0 24px' }} />
+                )}
 
-                {/* Key Findings Section */}
-                <SectionCard icon="🔍" title="Key Findings" color="#1e293b">
-                  {renderList(message.content.key_findings)}
-                </SectionCard>
+                {/* Key Findings — conditional */}
+                {message.content.key_findings?.length > 0 && (
+                  <SectionCard icon="🔍" title="Key Findings" color="#1e293b">
+                    {renderList(message.content.key_findings)}
+                  </SectionCard>
+                )}
 
-                {/* Business Insights Section */}
-                <SectionCard icon="💡" title="Business Insights" color="#312e81">
-                  {renderList(message.content.business_insights)}
-                </SectionCard>
+                {/* Business Insights — conditional */}
+                {message.content.business_insights?.length > 0 && (
+                  <SectionCard icon="💡" title="Business Insights" color="#312e81">
+                    {renderList(message.content.business_insights)}
+                  </SectionCard>
+                )}
 
-                {/* Recommendations Section */}
-                <SectionCard icon="🚀" title="Strategic Recommendations" color="#047857">
-                  {renderList(message.content.recommendations)}
-                </SectionCard>
+                {/* Recommendations — conditional */}
+                {message.content.recommendations?.length > 0 && (
+                  <SectionCard icon="🚀" title="Strategic Recommendations" color="#047857">
+                    {renderList(message.content.recommendations)}
+                  </SectionCard>
+                )}
 
-                {/* Potential Risks Section */}
-                <SectionCard icon="⚠️" title="Potential Risks & Caveats" color="#b91c1c">
-                  {renderList(message.content.potential_risks)}
-                </SectionCard>
+                {/* Potential Risks — conditional */}
+                {message.content.potential_risks?.length > 0 && (
+                  <SectionCard icon="⚠️" title="Potential Risks & Caveats" color="#b91c1c">
+                    {renderList(message.content.potential_risks)}
+                  </SectionCard>
+                )}
 
               </div>
             )}

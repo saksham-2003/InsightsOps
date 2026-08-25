@@ -218,19 +218,45 @@ class EvidenceAnalysisEngine:
         if not isinstance(fc, dict): return
         
         preds = fc.get("predictions", [])
+
         if isinstance(preds, list) and len(preds) > 0:
-            first = preds[0].get("Predicted_Revenue", 0)
-            last = preds[-1].get("Predicted_Revenue", 0)
-            if first > 0:
-                growth = ((last - first) / first) * 100
-                direction = "Increasing" if growth > 0 else "Declining"
-                priority = "Critical" if growth < -5 else "High"
-                
-                self._add_evidence(
-                    "Forecast Trend", f"{growth:+.2f}%", direction,
-                    f"Predicted revenue shifts by {growth:+.2f}% over the available forecast horizon.",
-                    "Crucial forward-looking signal for inventory and capacity planning.", priority
-                )
+
+            # Only use FUTURE forecast records.
+            # Historical/backtest records have an actual Revenue value,
+            # while future forecast records have Revenue=None.
+            future_preds = [
+                p for p in preds
+                if p.get("Revenue") is None
+                and p.get("Predicted_Revenue") is not None
+            ]
+
+            if len(future_preds) >= 2:
+
+                first = future_preds[0].get("Predicted_Revenue", 0)
+                last = future_preds[-1].get("Predicted_Revenue", 0)
+
+                if first > 0:
+                    growth = ((last - first) / first) * 100
+
+                    direction = (
+                        "Increasing"
+                        if growth > 0
+                        else "Declining"
+                        if growth < 0
+                        else "Stable"
+                    )
+
+                    priority = "Critical" if growth < -5 else "High"
+
+                    self._add_evidence(
+                        "Forecast Trend",
+                        f"{growth:+.2f}%",
+                        direction,
+                        f"Predicted revenue shifts by {growth:+.2f}% "
+                        f"over the available future forecast horizon.",
+                        "Crucial forward-looking signal for inventory and capacity planning.",
+                        priority
+                    )
 
     # =========================================================================
     # TASK 4: RELATIONSHIP & CORRELATION DETECTION

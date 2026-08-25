@@ -54,7 +54,9 @@ def ai_analyst(query: AnalystQuery, df=Depends(get_cleaned_dataframe)):
     print(workflow_result)
     if workflow_result.get("success"):
         return workflow_result
-    
+
+    print("⚠️ AGENT WORKFLOW FAILED — ENTERING FALLBACK")
+    print("Fallback query:", query.question)
 
     logger.warning("=" * 80)
     logger.warning("WORKFLOW RESULT")

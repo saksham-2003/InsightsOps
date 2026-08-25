@@ -61,7 +61,7 @@ def clean_data(df):
                 )
 
                 # Shift dates for demo dataset
-                cleaned_df[column] = cleaned_df[column] + pd.DateOffset(years=3)
+
 
                 cleaning_report["date_columns_converted"].append(column)
 

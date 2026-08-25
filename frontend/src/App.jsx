@@ -41,6 +41,7 @@ function App() {
             dashboardData={dashboardData}
             loading={loading}
             error={error}
+            setActivePage={setActivePage}
           />
         );
       case "analytics":

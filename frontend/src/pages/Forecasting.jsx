@@ -304,25 +304,45 @@ function Forecasting() {
   const metrics = forecastData?.metrics;
   const predictions = useMemo(() => forecastData?.predictions ?? [], [forecastData]);
 
-  const predictedRevenueTotal = useMemo(
-    () => predictions.reduce((sum, row) => sum + (row.Predicted_Revenue ?? 0), 0),
+  const futurePredictions = useMemo(
+    () => predictions.filter(p => p.Revenue == null),
     [predictions]
   );
 
-  const averagePredictedRevenue = predictions.length ? predictedRevenueTotal / predictions.length : 0;
+  // Scope to FUTURE forecast rows only (Revenue == null).
+  // Historical test-set rows have both Revenue and Predicted_Revenue and should
+  // not inflate the "Predicted Revenue" KPI card shown to the user.
+  const predictedRevenueTotal = useMemo(
+    () => futurePredictions.reduce((sum, row) => sum + (row.Predicted_Revenue ?? 0), 0),
+    [futurePredictions]
+  );
 
-  const forecastPeriod = predictions.length > 0
-    ? `${formatDate(predictions[0].Order_Date)} → ${formatDate(predictions[predictions.length - 1].Order_Date)}`
+  const averagePredictedRevenue = futurePredictions.length
+    ? predictedRevenueTotal / futurePredictions.length
+    : 0;
+
+  const forecastPeriod = futurePredictions.length > 0
+    ? `${formatDate(futurePredictions[0].Order_Date)} → ${formatDate(futurePredictions[futurePredictions.length - 1].Order_Date)}`
     : "—";
 
   const bestForecastDay = useMemo(
-    () => predictions.reduce((best, curr) => (!best || curr.Predicted_Revenue > best.Predicted_Revenue ? curr : best), null),
-    [predictions]
+    () =>
+      futurePredictions.reduce(
+        (best, curr) =>
+          (!best || curr.Predicted_Revenue > best.Predicted_Revenue ? curr : best),
+        null
+      ),
+    [futurePredictions]
   );
 
   const lowestForecastDay = useMemo(
-    () => predictions.reduce((lowest, curr) => (!lowest || curr.Predicted_Revenue < lowest.Predicted_Revenue ? curr : lowest), null),
-    [predictions]
+    () =>
+      futurePredictions.reduce(
+        (lowest, curr) =>
+          (!lowest || curr.Predicted_Revenue < lowest.Predicted_Revenue ? curr : lowest),
+        null
+      ),
+    [futurePredictions]
   );
 
   const predictionsWithError = useMemo(

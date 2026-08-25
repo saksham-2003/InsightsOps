@@ -2,6 +2,7 @@ from typing import TypedDict, Any, List, Dict, Optional
 from dataclasses import dataclass, field
 import time
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -264,6 +265,19 @@ class ConversationMemoryManager:
             "this"
         ]
         q_lower = query.lower().strip()
+        # Explicit forecast horizons are new standalone requests,
+        # not conversational follow-ups.
+        explicit_forecast_horizon = re.search(
+            r'\b(?:15|30|60|90)\s*[-]?\s*days?\b',
+            q_lower
+        )
+
+        if explicit_forecast_horizon and any(
+            term in q_lower
+            for term in ["forecast", "prediction", "predict", "revenue"]
+        ):
+            print("EXPLICIT FORECAST REQUEST:", query, "-> False")
+            return False
 
         # Short queries are frequently follow-ups
         if len(q_lower.split()) <= 4:

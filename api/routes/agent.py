@@ -76,19 +76,28 @@ def query_agent(
 
     tool_trace = []
 
-    for call in plan.get(
-        "tool_calls",
-        []
-    ):
+    # Prefer the structured tool execution plan because it
+    # contains the actual arguments passed to each tool.
+    structured_plan = plan.get("tool_execution_plan", [])
 
-        tool_trace.append({
-            "tool": call.get("tool"),
-            "arguments": call.get(
-                "arguments",
-                {}
-            )
-        })
+    if isinstance(structured_plan, list):
+        for call in structured_plan:
+            if isinstance(call, dict):
+                tool_trace.append({
+                    "tool": call.get("tool"),
+                    "arguments": call.get("arguments", {})
+                })
 
+    # Legacy compatibility
+    if not tool_trace:
+        for call in plan.get("tool_calls", []):
+            if isinstance(call, dict):
+                tool_trace.append({
+                    "tool": call.get("tool"),
+                    "arguments": call.get("arguments", {})
+                })
+
+    # Final fallback
     if not tool_trace:
         for tool_name in result.get("metadata", {}).get("tools_used", []):
             tool_trace.append({
@@ -112,7 +121,18 @@ def query_agent(
 
         "tools_used": tool_trace,
 
+        # Primary field: used directly by AIAnalyst.jsx
+        "final_response": result.get("final_response", {}),
+
+        # Backward-compatible alias kept for any existing consumers
         "analysis": result.get("final_response", {}),
+
+        # Chart specification generated from executed tool results
+        "visualization": result.get("visualization"),
+
+        # Enriched outputs from the newly wired specialist agent modules
+        "insight_report": result.get("insight_report", {}),
+        "recommendations": result.get("recommendations", {}),
 
         "evidence": result.get("evidence", {}),
 

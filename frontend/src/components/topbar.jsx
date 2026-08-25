@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 
-function Topbar({ title, subtitle }) {
+function Topbar({ title, subtitle, setActivePage }) {
   return (
     <header className="topbar">
       <div>
@@ -8,9 +8,16 @@ function Topbar({ title, subtitle }) {
         <p>{subtitle}</p>
       </div>
 
-      <button className="ask-ai-button">
-        <Search size={17} />
-        Ask InsightsOps AI
+      <button
+          className="ask-ai-button"
+          onClick={() => {
+              console.log("ASK AI BUTTON CLICKED");
+              console.log("setActivePage:", setActivePage);
+              setActivePage("ai-analyst");
+          }}
+      >
+          <Search size={17} />
+          Ask InsightsOps AI
       </button>
     </header>
   );

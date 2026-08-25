@@ -569,7 +569,10 @@ def get_forecast_evaluation(
             "message": future_forecast["error"]
         }
     
-    historical = results.tail(30).copy()
+    # Fixed 90-day lookback for chart context — independent of the forecast
+    # horizon so the historical overlap is consistent for any horizon (7 → 365).
+    historical_window = 90
+    historical = results.tail(historical_window).copy()
     historical["Order_Date"] = historical["Order_Date"].dt.strftime("%Y-%m-%d")
     historical_records = historical.to_dict(orient="records")
 

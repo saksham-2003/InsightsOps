@@ -29,6 +29,34 @@ class BusinessInsightGenerator:
         self.model = "insight_generator"
         self.temperature = 0.0
 
+    def _build_business_briefing(self) -> str:
+        """
+        Convert the current context into a human-readable business briefing
+        for the LLM.
+        """
+
+        context = self._build_context()
+
+        briefing = f"""
+    USER QUESTION
+    -------------
+    {context.get("user_query")}
+
+    TOOL RESULTS
+    ------------
+    {json.dumps(context.get("tool_results"), indent=2, default=str)}
+
+    STRUCTURED EVIDENCE
+    -------------------
+    {json.dumps(context.get("structured_evidence"), indent=2, default=str)}
+
+    RECOMMENDATIONS
+    ---------------
+    {json.dumps(context.get("recommendations"), indent=2, default=str)}
+    """
+
+        return briefing
+
     # =========================================================================
     # TASK 10: EXTENSIBILITY HOOKS
     # =========================================================================
@@ -138,7 +166,7 @@ You must return a valid JSON object strictly matching this schema.
         """
         persona = self._apply_persona_configuration()
         system_prompt = self._build_system_prompt(persona)
-        context_payload = json.dumps(self._build_context(), default=str)
+        context_payload = self._build_business_briefing()
 
         try:
             response = create_chat_completion_with_retry(

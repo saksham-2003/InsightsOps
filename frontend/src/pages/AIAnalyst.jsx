@@ -141,21 +141,24 @@ function AIAnalyst() {
     scrollToBottom();
   }, [messages, isTyping, loadingStatus]);
 
-  // Loading status step rotation ticker
+  // Loading status messages reflecting the real agentic pipeline stages
   useEffect(() => {
     let timer;
     if (isTyping) {
       const statuses = [
-        "Understanding your question...",
-        "Running business analysis...",
-        "Generating insights..."
+        "Planning analysis strategy...",
+        "Extracting business entities...",
+        "Executing analytical tools...",
+        "Analysing evidence...",
+        "Generating business insights...",
+        "Running validation & reflection..."
       ];
       let idx = 0;
       setLoadingStatus(statuses[0]);
       timer = setInterval(() => {
         idx = (idx + 1) % statuses.length;
         setLoadingStatus(statuses[idx]);
-      }, 1400);
+      }, 1800);
     } else {
       setLoadingStatus("");
     }
@@ -211,17 +214,46 @@ function AIAnalyst() {
       
       setMessages((prev) => [...prev, aiMsg]);
     } catch (error) {
-          console.error("========== AI ERROR ==========");
-          console.error(error);
-          console.error("Response:", error.response);
-          console.error("Data:", error.response?.data);
-          console.error("Stack:", error.stack);
+      console.error("AI Analyst error:", error?.response?.data || error.message);
 
-          throw error;   // <-- Add this temporarily
+      // Determine a user-friendly error message
+      const serverMsg = error?.response?.data?.detail?.message
+        || error?.response?.data?.message
+        || null;
+      const statusCode = error?.response?.status;
+      let displayMsg = serverMsg
+        || (statusCode === 500
+          ? "The analysis pipeline encountered an internal error. Please try a different question or retry."
+          : statusCode === 422
+          ? "Your question could not be processed. Please rephrase and try again."
+          : "Unable to reach the InsightsOps server. Please check the backend is running.");
 
-          // Comment out everything below for now
-      } 
-      finally {
+      const errorMsg = {
+        id: (Date.now() + 1).toString(),
+        role: "ai",
+        content: {
+          executive_summary: `⚠️ Analysis Error: ${displayMsg}`,
+          key_findings: [],
+          evidence: [],
+          business_insights: [],
+          recommendations: [],
+          potential_risks: [],
+          suggested_follow_up_questions: [
+            "Try rephrasing your question.",
+            "Ask about overall revenue performance.",
+            "Which region generated the highest revenue?"
+          ]
+        },
+        visualization: null,
+        evidence: {},
+        toolsUsed: [],
+        executionTime: 0,
+        confidence: 0,
+        evidenceCount: 0,
+        followUpQuestions: []
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
       setIsTyping(false);
     }
   };

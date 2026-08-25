@@ -5,7 +5,7 @@ import CategoryChart from "../components/CategoryChart";
 import RegionChart from "../components/RegionChart";
 import { formatCurrency } from "../utils/format";
 
-function Dashboard({ dashboardData, loading, error }) {
+function Dashboard({ dashboardData, loading, error, setActivePage }) {
   const kpis = dashboardData?.kpis;
 
   return (
@@ -13,6 +13,7 @@ function Dashboard({ dashboardData, loading, error }) {
       <Topbar
         title="Business Overview"
         subtitle="Monitor performance and discover AI-powered insights."
+        setActivePage={setActivePage}
       />
 
       {loading && (

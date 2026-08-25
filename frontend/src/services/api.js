@@ -18,9 +18,11 @@ export const getDashboardOverview = async (filters = {}) => {
   return response.data;
 };
 
-// MODIFIED: Maps directly to the new ai-analyst ml route
+// Routes to the full agentic pipeline: Planner → Entity Extraction → Memory →
+// Tool Routing → Evidence Analysis → Insight Generator → Recommendation Engine
+// → Reflection → Visualization. Previously called /api/ml/ai-analyst (keyword-only).
 export const queryAIAnalyst = async (question) => {
-  const response = await api.post("/api/ml/ai-analyst", { question });
+  const response = await api.post("/api/agent/query", { question });
   return response.data;
 };
 

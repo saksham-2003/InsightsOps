@@ -32,7 +32,24 @@ SUPPORTED_INTENTS = [
     "Executive Summary",
     "Recommendation",
     "Risk",
-    "General Business Question"
+    "General Business Question",
+    "east",
+    "west",
+    "north",
+    "south",
+    "central",
+    "india",
+    "usa",
+    "country",
+    "state",
+    "city",
+    "electronics",
+    "furniture",
+    "office supplies",
+    "segment",
+    "sub category",
+    "subcategory",
+    "product category"
 ]
 
 # Tool-specific allowed filters
@@ -41,7 +58,7 @@ TOOL_ALLOWED_FILTERS = {
     "category_performance": {"category", "sub_category", "year", "month", "region"},
     "top_products": {"category", "sub_category", "region", "year", "month"},
     "bottom_products": {"category", "sub_category", "region", "year", "month"},
-    "forecast_evaluation": {"year", "month"},
+    "forecast_evaluation": {"year", "month", "custom_date", "horizon"},
     "monthly_trend": {"year", "month", "region", "category"},
     "anomaly_detection": {"year", "month", "region", "category"},
     "kpi_summary": {
@@ -67,9 +84,523 @@ class BusinessAnalysisPlanner:
     """
 
     def __init__(self):
-        self.client = get_llm_client()
+        self.client = None
         self.model = "planner"
         self.temperature = 0.0
+
+    def _get_client(self):
+        if self.client is None:
+            self.client = get_llm_client()
+        return self.client
+
+    def _normalize_query(self, user_query: str) -> str:
+        return " ".join(str(user_query or "").lower().split())
+
+    def _build_deterministic_plan(self, user_query: str, context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """
+        Create a deterministic, minimal plan before falling back to the LLM.
+        Keeps the workflow fast, inexpensive, and aligned with the requested
+        routing rules for trend, category, region, forecast, anomaly, and product questions.
+        """
+        query = self._normalize_query(user_query)
+        if not query:
+            return None
+
+                # ---------------------------------------------------------
+        # FORECAST
+        # ---------------------------------------------------------
+        if any(term in query for term in [
+            "forecast",
+            "prediction",
+            "predict",
+            "future revenue",
+            "next month",
+            "next quarter"
+        ]):
+            # Extract date/entity information passed from agent_workflow.py
+            entities = {}
+
+            if context:
+                entities = (
+                    context.get("extracted_entities")
+                    or context.get("entities")
+                    or {}
+                )
+
+            import re
+            import calendar
+            from datetime import datetime
+
+            # ---------------------------------------------------------
+            # Forecast entities
+            # ---------------------------------------------------------
+            requested_year = entities.get("year")
+            requested_month = entities.get("month")
+
+            # ---------------------------------------------------------
+            # Forecast arguments
+            # ---------------------------------------------------------
+            forecast_arguments = {}
+
+            # =========================================================
+            # 1. EXPLICIT FORECAST HORIZON
+            # =========================================================
+            # Examples:
+            # "Give me a 15-day revenue forecast"
+            # "Give me a 30-day forecast"
+            # "Forecast revenue for the next 90 days"
+            # =========================================================
+
+            horizon_match = re.search(
+                r'\b(?:next\s+)?(\d+)\s*[-]?\s*days?\b',
+                query.lower()
+            )
+
+            if horizon_match:
+                try:
+                    horizon_days = int(horizon_match.group(1))
+
+                    if horizon_days > 0:
+                        # Maximum horizon supported by planner
+                        horizon_days = min(horizon_days, 365)
+
+                        forecast_arguments["horizon"] = horizon_days
+
+                except (ValueError, TypeError):
+                    pass
+
+            # =====================================================
+            # 2. EXPLICIT "UNTIL" DATE
+            # Examples:
+            # "forecast until March 15, 2027"
+            # "forecast until March 15"
+            # =====================================================
+            if "until" in query:
+                month_names = (
+                    "january|february|march|april|may|june|july|"
+                    "august|september|october|november|december"
+                )
+
+                until_match = re.search(
+                    rf'\buntil\s+({month_names})\s+(\d{{1,2}})'
+                    rf'(?:st|nd|rd|th)?'
+                    rf'(?:,?\s+(\d{{4}}))?\b',
+                    query,
+                    re.IGNORECASE
+                )
+
+                if until_match:
+                    try:
+                        month_name = until_match.group(1).lower()
+                        day = int(until_match.group(2))
+
+                        year = until_match.group(3)
+
+                        # If year is not explicitly provided, use the
+                        # extracted year from the entities if available.
+                        if year:
+                            year_int = int(year)
+                        elif requested_year:
+                            year_int = int(str(requested_year))
+                        else:
+                            year_int = None
+
+                        month_numbers = {
+                            "january": 1,
+                            "february": 2,
+                            "march": 3,
+                            "april": 4,
+                            "may": 5,
+                            "june": 6,
+                            "july": 7,
+                            "august": 8,
+                            "september": 9,
+                            "october": 10,
+                            "november": 11,
+                            "december": 12
+                        }
+
+                        month_int = month_numbers[month_name]
+
+                        if year_int:
+                            target_date = datetime(
+                                year_int,
+                                month_int,
+                                day
+                            )
+
+                            forecast_arguments["custom_date"] = (
+                                target_date.strftime("%Y-%m-%d")
+                            )
+
+                            # Custom date takes priority over horizon.
+                            forecast_arguments.pop("horizon", None)
+
+                    except (ValueError, TypeError, KeyError):
+                        pass
+
+            # =====================================================
+            # 3. SPECIFIC YEAR + MONTH
+            # Example:
+            # "Forecast revenue for February 2027"
+            # =====================================================
+            if (
+                "custom_date" not in forecast_arguments
+                and "horizon" not in forecast_arguments
+                and requested_year
+                and requested_month
+            ):
+                try:
+                    year_int = int(str(requested_year))
+
+                    month_name = str(requested_month).strip().lower()
+
+                    month_numbers = {
+                        "january": 1,
+                        "february": 2,
+                        "march": 3,
+                        "april": 4,
+                        "may": 5,
+                        "june": 6,
+                        "july": 7,
+                        "august": 8,
+                        "september": 9,
+                        "october": 10,
+                        "november": 11,
+                        "december": 12
+                    }
+
+                    month_int = month_numbers.get(month_name)
+
+                    if month_int:
+                        last_day = calendar.monthrange(
+                            year_int,
+                            month_int
+                        )[1]
+
+                        forecast_arguments["custom_date"] = (
+                            f"{year_int:04d}-{month_int:02d}-{last_day:02d}"
+                        )
+
+                except (ValueError, TypeError):
+                    pass
+
+            # =====================================================
+            # 4. SPECIFIC YEAR ONLY
+            # Example:
+            # "Forecast revenue for 2027"
+            # =====================================================
+            elif (
+                "custom_date" not in forecast_arguments
+                and "horizon" not in forecast_arguments
+                and requested_year
+            ):
+                try:
+                    year_int = int(str(requested_year))
+
+                    forecast_arguments["custom_date"] = (
+                        f"{year_int:04d}-12-31"
+                    )
+
+                except (ValueError, TypeError):
+                    pass
+
+            # =====================================================
+            # 5. DEFAULT FORECAST
+            # If the user doesn't specify a date or horizon,
+            # allow forecast_future_revenue() to use its default.
+            # =====================================================
+
+            return {
+                "intents": ["Forecast"],
+                "selected_tools": ["forecast_evaluation"],
+                "tool_execution_plan": [
+                    {
+                        "tool": "forecast_evaluation",
+                        "arguments": forecast_arguments
+                    }
+                ],
+                "tool_reasoning": {
+                    "forecast_evaluation": (
+                        "Forecasting questions are routed to the forecast "
+                        "tool. Explicit day horizons are passed as horizon, "
+                        "specific endpoint dates are passed as custom_date, "
+                        "and calendar-month requests use the last day of "
+                        "the requested month."
+                    )
+                },
+                "overall_reasoning": (
+                    "Forecast questions are routed directly to the forecast "
+                    "tool with the user's requested horizon or future endpoint."
+                ),
+                "confidence": 0.98,
+                "tool_confidence": {
+                    "forecast_evaluation": 0.98
+                }
+            }
+
+        if any(term in query for term in [
+            "anomaly",
+            "anomalies",
+            "outlier",
+            "outliers",
+            "abnormal",
+            "unusual",
+            "suspicious",
+            "suspicious transaction",
+            "suspicious transactions",
+            "fraud",
+            "fraudulent",
+            "risk",
+            "risks",
+            "exception",
+            "exceptions",
+            "critical transaction",
+            "critical transactions",
+            "high risk",
+            "high-risk",
+            "flagged transaction",
+            "flagged transactions",
+            "show anomalies",
+            "detect anomalies"
+        ]):
+            return {
+                "intents": ["Anomaly"],
+                "selected_tools": ["anomaly_detection"],
+                "tool_execution_plan": [
+                    {
+                        "tool": "anomaly_detection",
+                        "arguments": {}
+                    }
+                ],
+                "tool_reasoning": {
+                    "anomaly_detection": "Anomaly, fraud, suspicious or risk-related questions require anomaly detection."
+                },
+                "overall_reasoning": "The query is asking to identify unusual or suspicious transactions.",
+                "confidence": 0.98,
+                "tool_confidence": {
+                    "anomaly_detection": 0.98
+                }
+            }
+
+        if any(term in query for term in [
+            "top product",
+            "top products",
+            "top 10 product",
+            "top 10 products",
+            "best selling",
+            "best seller",
+            "best sellers",
+            "highest selling",
+            "highest revenue product",
+            "highest revenue products",
+            "highest grossing",
+            "highest grossing products",
+            "most profitable product",
+            "leading product",
+            "top items",
+            "best items"
+        ]):
+            return {
+                "intents": ["Product"],
+                "selected_tools": ["top_products"],
+                "tool_execution_plan": [{"tool": "top_products", "arguments": {}}],
+                "tool_reasoning": {"top_products": "Top-product questions require ranking the highest-revenue products."},
+                "overall_reasoning": "Product questions are routed to the top-products tool.",
+                "confidence": 0.96,
+                "tool_confidence": {"top_products": 0.96}
+            }
+
+        if any(term in query for term in [
+            "bottom product",
+            "bottom products",
+            "bottom 10 product",
+            "bottom 10 products",
+            "worst product",
+            "worst products",
+            "lowest selling",
+            "least selling",
+            "lowest revenue product",
+            "lowest revenue products",
+            "lowest grossing",
+            "least profitable",
+            "worst performing",
+            "worst performing product",
+            "bottom items",
+            "least performing"
+        ]):
+            return {
+                "intents": ["Product"],
+                "selected_tools": ["bottom_products"],
+                "tool_execution_plan": [{"tool": "bottom_products", "arguments": {}}],
+                "tool_reasoning": {"bottom_products": "Lowest-product questions require the bottom-products tool."},
+                "overall_reasoning": "Product questions are routed to the bottom-products tool.",
+                "confidence": 0.96,
+                "tool_confidence": {"bottom_products": 0.96}
+            }
+
+        if any(term in query for term in [
+            "region",
+            "regions",
+            "regional",
+            "territory",
+            "territories",
+            "geography",
+            "geographical",
+            "east",
+            "west",
+            "north",
+            "south",
+            "central",
+            "by region",
+            "revenue by region",
+            "profit by region",
+            "region performance",
+            "regional performance",
+            "compare region",
+            "compare regions",
+            "compare east",
+            "compare west",
+            "best region",
+            "worst region",
+            "top region",
+            "highest region",
+            "highest revenue region",
+            "which region",
+            "performing region"
+        ]):
+            return {
+                "intents": ["Region"],
+                "selected_tools": ["regional_performance", "kpi_summary"],
+                "tool_execution_plan": [
+                    {"tool": "regional_performance", "arguments": {}},
+                    {"tool": "kpi_summary", "arguments": {}}
+                ],
+                "tool_reasoning": {
+                    "regional_performance": "Regional questions require a regional performance breakdown.",
+                    "kpi_summary": "KPI context is added to anchor the regional comparison in overall business size."
+                },
+                "overall_reasoning": "Regional questions are answered with regional performance plus KPI context.",
+                "confidence": 0.97,
+                "tool_confidence": {"regional_performance": 0.97, "kpi_summary": 0.9}
+            }
+
+        if any(term in query for term in [
+            "category",
+            "categories",
+            "product category",
+            "product categories",
+            "by category",
+            "across categories",
+            "revenue by category",
+            "profit by category",
+            "category performance",
+            "category comparison",
+            "compare category",
+            "compare categories",
+            "highest category",
+            "best category",
+            "top category",
+            "leading category",
+            "highest revenue category",
+            "highest grossing category",
+            "best performing category",
+            "which category"
+        ]):
+            return {
+                "intents": ["Category"],
+                "selected_tools": ["category_performance", "kpi_summary"],
+                "tool_execution_plan": [
+                    {"tool": "category_performance", "arguments": {}},
+                    {"tool": "kpi_summary", "arguments": {}}
+                ],
+                "tool_reasoning": {
+                    "category_performance": "Category questions require the category breakdown.",
+                    "kpi_summary": "KPI context is added to compare category performance against overall business scale."
+                },
+                "overall_reasoning": "Category questions are answered with category performance plus KPI context.",
+                "confidence": 0.97,
+                "tool_confidence": {"category_performance": 0.97, "kpi_summary": 0.9}
+            }
+
+        if any(term in query for term in [
+            "trend",
+            "monthly",
+            "month",
+            "month over month",
+            "mom",
+            "growth",
+            "decline",
+            "increase",
+            "decrease",
+            "peak",
+            "trough",
+            "seasonality",
+            "year over year",
+            "yoy",
+            "quarter",
+            "q1",
+            "q2",
+            "q3",
+            "q4",
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
+            "better than",
+            "worse than",
+            "compared to",
+            "compare october",
+            "compare november",
+            "vs",
+            "versus"
+        ]):
+            return {
+                "intents": ["Trend"],
+                "selected_tools": ["monthly_trend", "kpi_summary"],
+                "tool_execution_plan": [
+                    {"tool": "monthly_trend", "arguments": {}},
+                    {"tool": "kpi_summary", "arguments": {}}
+                ],
+                "tool_reasoning": {
+                    "monthly_trend": "Trend and timing questions require the monthly performance trend.",
+                    "kpi_summary": "KPI context is added to contextualize the trend against overall business scale."
+                },
+                "overall_reasoning": "Trend questions are answered with the monthly trend and KPI context.",
+                "confidence": 0.96,
+                "tool_confidence": {"monthly_trend": 0.96, "kpi_summary": 0.9}
+            }
+
+        if any(term in query for term in ["revenue", "profit", "summary", "overall", "business overview"]):
+            return {
+                "intents": ["Revenue"],
+                "selected_tools": [
+                    "kpi_summary"
+                ],
+                "tool_execution_plan": [
+                    {
+                        "tool":"kpi_summary",
+                        "arguments":{}
+                    }
+                ],
+                "tool_reasoning": {
+                    "kpi_summary": "General revenue or profit questions need a baseline KPI view.",
+                    "monthly_trend": "A trend view is added for context when the question is about performance over time."
+                },
+                "overall_reasoning": "General KPI questions are answered using KPI Summary only.",
+                "confidence": 0.9,
+                "tool_confidence": {"kpi_summary": 0.9, "monthly_trend": 0.8}
+            }
+
+        return None
 
     def _build_system_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:
         """
@@ -242,11 +773,15 @@ REQUIRED JSON OUTPUT FORMAT:
         """
         Core planning execution loop.
         """
+        deterministic_plan = self._build_deterministic_plan(user_query, context)
+        if deterministic_plan:
+            return self._validate_and_format_plan(deterministic_plan, context)
+
         system_prompt = self._build_system_prompt(context)
 
         try:
             response = create_chat_completion_with_retry(
-                self.client,
+                self._get_client(),
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -312,7 +847,7 @@ REQUIRED JSON OUTPUT FORMAT:
         )
 
         response = create_chat_completion_with_retry(
-            self.client,
+            self._get_client(),
             model=self.model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -337,17 +872,32 @@ def create_ai_plan(
     failed_tools: Optional[list[str]] = None
 ) -> Dict[str, Any]:
     """
-    Use an LLM to understand the user's business question
-    and select an ordered sequence of analytical tools needed along with filtered arguments.
-    
-    (Backwards compatible entry point).
+    Use the BusinessAnalysisPlanner to understand the user's business
+    question and select an ordered sequence of analytical tools.
+
+    The function preserves extracted entity/date information in the
+    planner context so that filters such as year, month, region, category,
+    etc. can be used when constructing tool arguments.
+
+    Backwards compatible entry point.
     """
+
     planner = BusinessAnalysisPlanner()
 
-    if failed_tools:
-        if context is None:
-            context = {}
+    # Always work with a dictionary so we can safely enrich the context.
+    if context is None:
+        context = {}
 
+    # Preserve extracted entities/date information if they were already
+    # supplied by the workflow.
+    if "entities" in context and context["entities"]:
+        context["extracted_entities"] = context["entities"]
+
+    # Preserve failed tools for retry/fallback planning.
+    if failed_tools:
         context["failed_tools"] = failed_tools
 
-    return planner.generate_plan(user_query, context)
+    return planner.generate_plan(
+        user_query,
+        context
+    )
